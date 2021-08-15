@@ -139,7 +139,7 @@ Global / useJSEnv := NodeJS
 
 ThisBuild / Test / jsEnv := {
   useJSEnv.value match {
-    case NodeJS => new NodeJSEnv(NodeJSEnv.Config().withSourceMap(true))
+    case NodeJS => new NodeJSEnv(NodeJSEnv.Config().withSourceMap(false))
     case JSDOMNodeJS => new JSDOMNodeJSEnv()
     case Firefox =>
       val profile = new FirefoxProfile()
