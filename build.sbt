@@ -55,7 +55,7 @@ val ScalaJSJava = "adoptium@8"
 val Scala213 = "2.13.6"
 val Scala3 = "3.0.1"
 
-ThisBuild / crossScalaVersions := Seq(Scala3, "2.12.14", Scala213)
+ThisBuild / crossScalaVersions := Seq("2.12.14", Scala213)
 
 ThisBuild / githubWorkflowUseSbtThinClient := false
 ThisBuild / githubWorkflowTargetBranches := Seq("series/3.x")
@@ -206,12 +206,23 @@ val jsProjects: Seq[ProjectReference] =
     std.js,
     example.js)
 
+val nativeProjects: Seq[ProjectReference] =
+  Seq(
+    kernel.native,
+    kernelTestkit.native,
+    laws.native,
+    core.native,
+    testkit.native,
+    tests.native,
+    std.native,
+    example.native)
+
 val undocumentedRefs =
-  jsProjects ++ Seq[ProjectReference](benchmarks, example.jvm)
+  jsProjects ++ nativeProjects ++ Seq[ProjectReference](benchmarks, example.jvm)
 
 lazy val root = project
   .in(file("."))
-  .aggregate(rootJVM, rootJS)
+  .aggregate(rootJVM, rootJS, rootNative)
   .enablePlugins(NoPublishPlugin)
   .enablePlugins(ScalaUnidocPlugin)
   .settings(
@@ -244,11 +255,13 @@ lazy val rootJVM = project
 
 lazy val rootJS = project.aggregate(jsProjects: _*).enablePlugins(NoPublishPlugin)
 
+lazy val rootNative = project.aggregate(nativeProjects: _*).enablePlugins(NoPublishPlugin)
+
 /**
  * The core abstractions and syntax. This is the most general definition of Cats Effect,
  * without any concrete implementations. This is the "batteries not included" dependency.
  */
-lazy val kernel = crossProject(JSPlatform, JVMPlatform)
+lazy val kernel = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("kernel"))
   .settings(
     name := "cats-effect-kernel",
@@ -262,6 +275,11 @@ lazy val kernel = crossProject(JSPlatform, JVMPlatform)
     else
       (Compile / doc / sources).value
   })
+  .nativeSettings(
+    Test / unmanagedSourceDirectories := Seq.empty,
+    libraryDependencies -= ("org.specs2" %%% "specs2-core" % Specs2Version % Test)
+      .cross(CrossVersion.for3Use2_13)
+  )
 
 /**
  * Reference implementations (including a pure ConcurrentBracket), generic ScalaCheck
@@ -274,8 +292,8 @@ lazy val kernelTestkit = crossProject(JSPlatform, JVMPlatform)
     name := "cats-effect-kernel-testkit",
     libraryDependencies ++= Seq(
       "org.typelevel" %%% "cats-free" % CatsVersion,
-      "org.scalacheck" %%% "scalacheck" % ScalaCheckVersion,
-      "org.typelevel" %%% "coop" % CoopVersion)
+      "org.scalacheck" %%% "scalacheck" % ScalaCheckVersion
+      /*"org.typelevel" %%% "coop" % CoopVersion*/ )
   )
 
 /**
@@ -299,7 +317,7 @@ lazy val laws = crossProject(JSPlatform, JVMPlatform)
  * on top of IO which are useful in their own right, as well as some utilities
  * (such as IOApp). This is the "batteries included" dependency.
  */
-lazy val core = crossProject(JSPlatform, JVMPlatform)
+lazy val core = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("core"))
   .dependsOn(kernel, std)
   .settings(
@@ -363,7 +381,7 @@ lazy val core = crossProject(JSPlatform, JVMPlatform)
  * Test support for the core project, providing various helpful instances
  * like ScalaCheck generators for IO and SyncIO.
  */
-lazy val testkit = crossProject(JSPlatform, JVMPlatform)
+lazy val testkit = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("testkit"))
   .dependsOn(core, kernelTestkit)
   .settings(
@@ -373,14 +391,14 @@ lazy val testkit = crossProject(JSPlatform, JVMPlatform)
 /**
  * Unit tests for the core project, utilizing the support provided by testkit.
  */
-lazy val tests = crossProject(JSPlatform, JVMPlatform)
+lazy val tests = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("tests"))
   .dependsOn(laws % Test, kernelTestkit % Test, testkit % Test)
   .enablePlugins(NoPublishPlugin)
   .settings(
     name := "cats-effect-tests",
     libraryDependencies ++= Seq(
-      "org.typelevel" %%% "discipline-specs2" % DisciplineVersion % Test,
+      // "org.typelevel" %%% "discipline-specs2" % DisciplineVersion % Test,
       "org.typelevel" %%% "cats-kernel-laws" % CatsVersion % Test)
   )
   .jvmSettings(
@@ -407,7 +425,7 @@ lazy val webWorkerTests = project
  * the *tests* for these implementations will require IO, and thus those tests
  * will be located within the core project.
  */
-lazy val std = crossProject(JSPlatform, JVMPlatform)
+lazy val std = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("std"))
   .dependsOn(kernel)
   .settings(
@@ -423,12 +441,18 @@ lazy val std = crossProject(JSPlatform, JVMPlatform)
     },
     libraryDependencies += "org.scalacheck" %%% "scalacheck" % ScalaCheckVersion % Test
   )
+  .nativeSettings(
+    libraryDependencies ~= {
+      _.filterNot(_.organization == "org.specs2")
+    },
+    Test / unmanagedSourceDirectories := Seq.empty
+  )
 
 /**
  * A trivial pair of trivial example apps primarily used to show that IOApp
  * works as a practical runtime on both target platforms.
  */
-lazy val example = crossProject(JSPlatform, JVMPlatform)
+lazy val example = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("example"))
   .dependsOn(core)
   .enablePlugins(NoPublishPlugin)

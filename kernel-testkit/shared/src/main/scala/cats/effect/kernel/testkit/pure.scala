@@ -22,7 +22,6 @@ import cats.data.{Kleisli, State, WriterT}
 import cats.effect.kernel._
 import cats.free.FreeT
 import cats.syntax.all._
-import coop.{ApplicativeThread, MVar, ThreadT}
 
 object pure {
 
