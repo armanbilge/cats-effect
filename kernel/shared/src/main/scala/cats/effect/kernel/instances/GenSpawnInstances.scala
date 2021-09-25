@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-package cats.effect.kernel.instances
+package cats.effect.kernel
+package instances
 
 import cats.{~>, Align, Applicative, CommutativeApplicative, Eval, Functor, Monad, Parallel}
 import cats.data.Ior
 import cats.implicits._
-import cats.effect.kernel.{GenSpawn, Outcome, ParallelF}
 
 trait GenSpawnInstances {
 
@@ -46,17 +46,122 @@ trait GenSpawnInstances {
 
   implicit def commutativeApplicativeForParallelF[F[_], E](
       implicit F: GenSpawn[F, E]): CommutativeApplicative[ParallelF[F, *]] =
-    new CommutativeApplicative[ParallelF[F, *]] {
+    new ParallelFMonadCancel[F, E] with CommutativeApplicative[ParallelF[F, *]]
 
-      final override def pure[A](a: A): ParallelF[F, A] = ParallelF(F.pure(a))
+  // TODO Not implicit while experimenting, will need some priority scoping to avoid conflicting with above
+  def monadCancelForParallelF[F[_], E](
+      implicit F: GenSpawn[F, E]): MonadCancel[ParallelF[F, *], E] =
+    new ParallelFMonadCancel[F, E]
 
-      final override def map2[A, B, Z](fa: ParallelF[F, A], fb: ParallelF[F, B])(
-          f: (A, B) => Z): ParallelF[F, Z] =
+  private class ParallelFMonadCancel[F[_], E](implicit F: GenSpawn[F, E])
+      extends MonadCancel[ParallelF[F, *], E] {
+
+    final override def pure[A](a: A): ParallelF[F, A] = ParallelF(F.pure(a))
+
+    def handleErrorWith[A](fa: ParallelF[F, A])(f: E => ParallelF[F, A]): ParallelF[F, A] =
+      ParallelF(F.handleErrorWith(ParallelF.value(fa))(f.andThen(ParallelF.value)))
+
+    def raiseError[A](e: E): ParallelF[F, A] = ParallelF(F.raiseError(e))
+
+    def flatMap[A, B](fa: ParallelF[F, A])(f: A => ParallelF[F, B]): ParallelF[F, B] =
+      ParallelF(F.flatMap(ParallelF.value(fa))(f.andThen(ParallelF.value)))
+
+    def tailRecM[A, B](a: A)(f: A => ParallelF[F, Either[A, B]]): ParallelF[F, B] =
+      ParallelF(F.tailRecM(a)(f.andThen(ParallelF.value)))
+
+    def canceled: ParallelF[F, Unit] = ParallelF(F.canceled)
+
+    def forceR[A, B](fa: ParallelF[F, A])(fb: ParallelF[F, B]): ParallelF[F, B] =
+      ParallelF(F.forceR(ParallelF.value(fa))(ParallelF.value(fb)))
+
+    def onCancel[A](fa: ParallelF[F, A], fin: ParallelF[F, Unit]): ParallelF[F, A] =
+      ParallelF(F.onCancel(ParallelF.value(fa), ParallelF.value(fin)))
+
+    def rootCancelScope: CancelScope = F.rootCancelScope
+
+    def uncancelable[A](body: Poll[ParallelF[F, *]] => ParallelF[F, A]): ParallelF[F, A] =
+      ParallelF(
+        F.uncancelable { pollF =>
+          val pollParallelF = new Poll[ParallelF[F, *]] {
+            def apply[A](fa: ParallelF[F, A]): ParallelF[F, A] =
+              ParallelF(pollF(ParallelF.value(fa)))
+          }
+          ParallelF.value(body(pollParallelF))
+        }
+      )
+
+    final override def map2[A, B, Z](fa: ParallelF[F, A], fb: ParallelF[F, B])(
+        f: (A, B) => Z): ParallelF[F, Z] =
+      ParallelF(
+        F.uncancelable { poll =>
+          for {
+            fiberA <- F.start(ParallelF.value(fa))
+            fiberB <- F.start(ParallelF.value(fb))
+
+            // start a pair of supervisors to ensure that the opposite is canceled on error
+            _ <- F start {
+              fiberB.join flatMap {
+                case Outcome.Succeeded(_) => F.unit
+                case _ => fiberA.cancel
+              }
+            }
+
+            _ <- F start {
+              fiberA.join flatMap {
+                case Outcome.Succeeded(_) => F.unit
+                case _ => fiberB.cancel
+              }
+            }
+
+            a <- F
+              .onCancel(poll(fiberA.join), F.both(fiberA.cancel, fiberB.cancel).void)
+              .flatMap[A] {
+                case Outcome.Succeeded(fa) =>
+                  fa
+
+                case Outcome.Errored(e) =>
+                  fiberB.cancel *> F.raiseError(e)
+
+                case Outcome.Canceled() =>
+                  fiberB.cancel *> poll {
+                    fiberB.join flatMap {
+                      case Outcome.Succeeded(_) | Outcome.Canceled() =>
+                        F.canceled *> F.never
+                      case Outcome.Errored(e) =>
+                        F.raiseError(e)
+                    }
+                  }
+              }
+
+            z <- F.onCancel(poll(fiberB.join), fiberB.cancel).flatMap[Z] {
+              case Outcome.Succeeded(fb) =>
+                fb.map(b => f(a, b))
+
+              case Outcome.Errored(e) =>
+                F.raiseError(e)
+
+              case Outcome.Canceled() =>
+                poll {
+                  fiberA.join flatMap {
+                    case Outcome.Succeeded(_) | Outcome.Canceled() =>
+                      F.canceled *> F.never
+                    case Outcome.Errored(e) =>
+                      F.raiseError(e)
+                  }
+                }
+            }
+          } yield z
+        }
+      )
+
+    final override def map2Eval[A, B, Z](fa: ParallelF[F, A], fb: Eval[ParallelF[F, B]])(
+        f: (A, B) => Z): Eval[ParallelF[F, Z]] =
+      Eval.now(
         ParallelF(
           F.uncancelable { poll =>
             for {
               fiberA <- F.start(ParallelF.value(fa))
-              fiberB <- F.start(ParallelF.value(fb))
+              fiberB <- F.start(ParallelF.value(fb.value))
 
               // start a pair of supervisors to ensure that the opposite is canceled on error
               _ <- F start {
@@ -113,88 +218,23 @@ trait GenSpawnInstances {
             } yield z
           }
         )
+      )
 
-      final override def map2Eval[A, B, Z](fa: ParallelF[F, A], fb: Eval[ParallelF[F, B]])(
-          f: (A, B) => Z): Eval[ParallelF[F, Z]] =
-        Eval.now(
-          ParallelF(
-            F.uncancelable { poll =>
-              for {
-                fiberA <- F.start(ParallelF.value(fa))
-                fiberB <- F.start(ParallelF.value(fb.value))
+    final override def ap[A, B](ff: ParallelF[F, A => B])(
+        fa: ParallelF[F, A]): ParallelF[F, B] =
+      map2(ff, fa)(_(_))
 
-                // start a pair of supervisors to ensure that the opposite is canceled on error
-                _ <- F start {
-                  fiberB.join flatMap {
-                    case Outcome.Succeeded(_) => F.unit
-                    case _ => fiberA.cancel
-                  }
-                }
+    final override def product[A, B](
+        fa: ParallelF[F, A],
+        fb: ParallelF[F, B]): ParallelF[F, (A, B)] =
+      map2(fa, fb)((_, _))
 
-                _ <- F start {
-                  fiberA.join flatMap {
-                    case Outcome.Succeeded(_) => F.unit
-                    case _ => fiberB.cancel
-                  }
-                }
+    final override def map[A, B](fa: ParallelF[F, A])(f: A => B): ParallelF[F, B] =
+      ParallelF(ParallelF.value(fa).map(f))
 
-                a <- F
-                  .onCancel(poll(fiberA.join), F.both(fiberA.cancel, fiberB.cancel).void)
-                  .flatMap[A] {
-                    case Outcome.Succeeded(fa) =>
-                      fa
-
-                    case Outcome.Errored(e) =>
-                      fiberB.cancel *> F.raiseError(e)
-
-                    case Outcome.Canceled() =>
-                      fiberB.cancel *> poll {
-                        fiberB.join flatMap {
-                          case Outcome.Succeeded(_) | Outcome.Canceled() =>
-                            F.canceled *> F.never
-                          case Outcome.Errored(e) =>
-                            F.raiseError(e)
-                        }
-                      }
-                  }
-
-                z <- F.onCancel(poll(fiberB.join), fiberB.cancel).flatMap[Z] {
-                  case Outcome.Succeeded(fb) =>
-                    fb.map(b => f(a, b))
-
-                  case Outcome.Errored(e) =>
-                    F.raiseError(e)
-
-                  case Outcome.Canceled() =>
-                    poll {
-                      fiberA.join flatMap {
-                        case Outcome.Succeeded(_) | Outcome.Canceled() =>
-                          F.canceled *> F.never
-                        case Outcome.Errored(e) =>
-                          F.raiseError(e)
-                      }
-                    }
-                }
-              } yield z
-            }
-          )
-        )
-
-      final override def ap[A, B](ff: ParallelF[F, A => B])(
-          fa: ParallelF[F, A]): ParallelF[F, B] =
-        map2(ff, fa)(_(_))
-
-      final override def product[A, B](
-          fa: ParallelF[F, A],
-          fb: ParallelF[F, B]): ParallelF[F, (A, B)] =
-        map2(fa, fb)((_, _))
-
-      final override def map[A, B](fa: ParallelF[F, A])(f: A => B): ParallelF[F, B] =
-        ParallelF(ParallelF.value(fa).map(f))
-
-      final override def unit: ParallelF[F, Unit] =
-        ParallelF(F.unit)
-    }
+    final override def unit: ParallelF[F, Unit] =
+      ParallelF(F.unit)
+  }
 
   implicit def alignForParallelF[F[_], E](implicit F: GenSpawn[F, E]): Align[ParallelF[F, *]] =
     new Align[ParallelF[F, *]] {

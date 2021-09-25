@@ -20,6 +20,7 @@ package kernel
 import cats.effect.kernel.instances.all._
 import cats.effect.kernel.testkit.PureConcGenerators._
 import cats.effect.kernel.testkit.pure._
+import cats.effect.laws.MonadCancelTests
 import cats.laws.discipline.CommutativeApplicativeTests
 import org.typelevel.discipline.specs2.mutable.Discipline
 
@@ -29,5 +30,10 @@ class ParallelFSpec extends BaseSpec with Discipline {
     "CommutativeApplicative[ParallelF]",
     CommutativeApplicativeTests[ParallelF[PureConc[Throwable, *], *]]
       .commutativeApplicative[Int, Int, Int])
+
+  checkAll(
+    "MonadCancel[ParallelF]",
+    MonadCancelTests[ParallelF[PureConc[Throwable, *], *], Throwable](monadCancelForParallelF)
+      .monadCancel[Int, Int, Int])
 
 }

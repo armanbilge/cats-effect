@@ -21,7 +21,7 @@ import cats.laws.discipline.{AlignTests, CommutativeApplicativeTests, SemigroupK
 import cats.laws.discipline.arbitrary._
 
 import cats.effect.implicits._
-import cats.effect.laws.AsyncTests
+import cats.effect.laws.{AsyncTests, MonadCancelTests}
 import cats.effect.testkit.TestContext
 import cats.syntax.all._
 
@@ -1374,6 +1374,16 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
     checkAll(
       "IO.Par",
       CommutativeApplicativeTests[IO.Par].commutativeApplicative[Int, Int, Int]
+    )
+  }
+
+  {
+    implicit val ticker = Ticker()
+
+    checkAll(
+      "IO.Par",
+      MonadCancelTests[IO.Par, Throwable](
+        cats.effect.kernel.instances.all.monadCancelForParallelF).monadCancel[Int, Int, Int]
     )
   }
 
