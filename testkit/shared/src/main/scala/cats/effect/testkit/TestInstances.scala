@@ -141,7 +141,7 @@ trait TestInstances extends ParallelFGenerators with OutcomeGenerators with Sync
   implicit def orderIoFiniteDuration(implicit ticker: Ticker): Order[IO[FiniteDuration]] =
     Order by { ioa => unsafeRun(ioa).fold(None, _ => None, fa => fa) }
 
-  implicit def eqIOA[A: Eq](implicit ticker: Ticker): Eq[IO[A]] =
+  implicit def eqIOA[A](implicit ticker: Ticker, eq: Eq[Outcome[Option, Throwable, A]]): Eq[IO[A]] =
     Eq.by(unsafeRun(_))
 
   /**

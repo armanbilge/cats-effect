@@ -1384,10 +1384,16 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
 
   {
     implicit val ticker = Ticker()
-
+    implicit val myEq = eqIOA[Int](ticker, (x, y) => {
+      (x, y) match {
+        case (Outcome.Succeeded(a), Outcome.Succeeded(b)) => a == b
+        case (x, y) if !x.isSuccess & !y.isSuccess => true
+        case _ => false
+      }
+    })
     checkAll(
       "IO.Par",
-      CommutativeApplicativeTests[IO.Par].commutativeApplicative[Int, Int, Int]
+      CommutativeApplicativeTests[IO.Par].applicative[Int, Int, Int]
     )
   }
 
