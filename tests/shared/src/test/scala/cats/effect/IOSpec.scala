@@ -1082,13 +1082,16 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
         }
       }
 
-      "short-circuit on error" in ticked { implicit ticker =>
+      "short-circuit on error or cancellation" in ticked { implicit ticker =>
         case object TestException extends RuntimeException
 
         (IO.never[Unit], IO.raiseError[Unit](TestException)).parTupled.void must failAs(
           TestException)
         (IO.raiseError[Unit](TestException), IO.never[Unit]).parTupled.void must failAs(
           TestException)
+
+        (IO.never[Unit], IO.canceled).parTupled.void must selfCancel
+        (IO.canceled, IO.never[Unit]).parTupled.void must selfCancel
       }
     }
 
@@ -1382,15 +1385,37 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
     )
   }
 
+  def parallelEq[A: cats.Eq](implicit ticker: Ticker): cats.Eq[IO[A]] =
+    eqIOA[A](
+      ticker,
+      (x, y) => {
+        (x, y) match {
+          case (Outcome.Succeeded(a), Outcome.Succeeded(b)) =>
+            a === b || { println((x, y)); false }
+          case (x, y) if !x.isSuccess & !y.isSuccess => true
+          case (x, y) => println((x, y)); false
+        }
+      }
+    )
+
+  "IO.Par" should {
+    "equal itself when using map2" in ticked { implicit ticker =>
+      implicit val eq = parallelEq[Int]
+      forAll { (ioa: IO[Int], iob: IO[Int]) => ioa.map2(iob)(_ + _) eqv ioa.map2(iob)(_ + _) }
+        .set(minTestsOk = 10000)
+    }
+    "equal itself when using parProduct" in ticked { implicit ticker =>
+      implicit val eq = parallelEq[Int]
+      forAll { (ioa: IO[Int], iob: IO[Int]) =>
+        val ioc = ioa.parProduct(iob).map { case (x, y) => x + y }
+        ioc eqv ioc
+      }.set(minTestsOk = 10000)
+    }
+  }
+
   {
     implicit val ticker = Ticker()
-    implicit val myEq = eqIOA[Int](ticker, (x, y) => {
-      (x, y) match {
-        case (Outcome.Succeeded(a), Outcome.Succeeded(b)) => a == b
-        case (x, y) if !x.isSuccess & !y.isSuccess => true
-        case _ => false
-      }
-    })
+    implicit val eq = parallelEq[Int]
     checkAll(
       "IO.Par",
       CommutativeApplicativeTests[IO.Par].applicative[Int, Int, Int]
@@ -1399,6 +1424,9 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
 
   {
     implicit val ticker = Ticker()
+    implicit val eq1 = parallelEq[Int]
+    implicit val eq2 = parallelEq[cats.data.Ior[Int, Int]]
+    implicit val eq3 = parallelEq[cats.data.Ior[cats.data.Ior[Int, Int], Int]]
 
     checkAll(
       "IO.Par",

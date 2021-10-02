@@ -120,14 +120,13 @@ trait GenSpawnInstances {
 
       final override def ap[A, B](ff: ParallelF[F, A => B])(
           fa: ParallelF[F, A]): ParallelF[F, B] =
-        product(ff, fa).map {
-          case (ff, fa) => ff(fa)
-        }
+        product(ff, fa).map { case (ff, fa) => ff(fa) }
 
       final override def product[A, B](
           fa: ParallelF[F, A],
-          fb: ParallelF[F, B]): ParallelF[F, (A, B)] =
+          fb: ParallelF[F, B]): ParallelF[F, (A, B)] = {
         map2(fa, fb)((_, _))
+      }
 
       final override def map[A, B](fa: ParallelF[F, A])(f: A => B): ParallelF[F, B] =
         ParallelF(ParallelF.value(fa).map(f))
