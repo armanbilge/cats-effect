@@ -100,7 +100,7 @@ trait GenConcurrent[F[_], E] extends GenSpawn[F, E] {
   override def racePair[A, B](fa: F[A], fb: F[B])
       : F[Either[(Outcome[F, E, A], Fiber[F, E, B]), (Fiber[F, E, A], Outcome[F, E, B])]] = {
     implicit val F: GenConcurrent[F, E] = this
-
+    println("here again")
     uncancelable { poll =>
       for {
         result <-

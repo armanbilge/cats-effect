@@ -31,33 +31,42 @@ import org.scalacheck.Prop, Prop.forAll
 
 class ParallelFSpec extends BaseSpec with Discipline {
 
-  implicit val showIntInt = cats.Show.fromToString[Int => Int]
-  type F[A] = PureConc[Int, A]
-  val F = GenConcurrent[PureConc[Int, *]]
-  val fa: F[Int] = F
-    .uncancelable[Int](poll => F.canceled.as(42))
-    .onCancel(F.unit)
-  val fab: F[Int => Int] = F.pure((i: Int) => i + 1).flatTap(_ => F.canceled)
-  val fbc: F[Int => Int] = F.raiseError[Int => Int](42502142)
-  println(fa.show)
-  println(fab.show)
-  println(fbc.show)
+  // implicit val showIntInt = cats.Show.fromToString[Int => Int]
 
-  "ParallelF" should {
-    "not hang" in {
-      val compose: (Int => Int) => (Int => Int) => (Int => Int) = _.compose
-      // ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(fbc)
-      //   .map(compose)
-      //   .ap(ParallelF(fab))
-      //   .ap(ParallelF(fa))
+  type F[A] = PureConc[Unit, A]
+  val F = GenConcurrent[F]
+  val fa: F[String] = F.pure("a") 
+  val fb: F[String] = F.pure("b")
+  val fc: F[Unit] = F.raiseError[Unit](())
+  run(ParallelF.value(ParallelF(fa).product(ParallelF(fb)).product(ParallelF(fc))).attempt.map(x => println(s"can we make it this far? $x")))
+  // println(ParallelF.value(ParallelF(fa).product(ParallelF(fb)).product(ParallelF(fc))).show)
+  // println(ParallelF.value(ParallelF(fa).product(ParallelF(fb))).show)
+  // println(ParallelF.value(ParallelF(fc).product(ParallelF(fb).product(ParallelF(fa)))).show)
 
-      // This one hangs
-      ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(F.pure(42))
 
-      // This one does not
-      // ParallelF(fbc).map(compose).ap(ParallelF(fab))ap(ParallelF(fa)) eqv ParallelF(F.pure(42))
-    }
-  }
+  // run(ParallelF.value(ParallelF(fbc).product(ParallelF(fab).product(ParallelF(fa)))))
+  // run(ParallelF.value(ParallelF(fbc).product(ParallelF(fab).product(ParallelF(fa)))))
+  // run(ParallelF.value(ParallelF(fab).ap(ParallelF(fa))))
+  // run(ParallelF.value(ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa)))))
+  // println(fa.show)
+  // println(fab.show)
+  // println(fbc.show)
+
+  // "ParallelF" should {
+  //   "not hang" in {
+  //     val compose: (Int => Int) => (Int => Int) => (Int => Int) = _.compose
+  //     // ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(fbc)
+  //     //   .map(compose)
+  //     //   .ap(ParallelF(fab))
+  //     //   .ap(ParallelF(fa))
+
+  //     // This one hangs
+  //     // ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(F.pure(42))
+
+  //     // This one does not
+  //     // ParallelF(fbc).map(compose).ap(ParallelF(fab))ap(ParallelF(fa)) eqv ParallelF(F.pure(42))
+  //   }
+  // }
 
   // "ParallelF" should {
   //   "equal itself" in {

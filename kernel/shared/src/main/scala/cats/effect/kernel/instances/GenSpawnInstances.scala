@@ -114,6 +114,91 @@ trait GenSpawnInstances {
           }
         )
 
+      // final override def map2[A, B, Z](fa: ParallelF[F, A], fb: ParallelF[F, B])(
+      //     f: (A, B) => Z): ParallelF[F, Z] =
+      //   ParallelF {
+      //     val fz = F.uncancelable { poll =>
+      //       for {
+      //         fiberA <- F.start(ParallelF.value(fa))
+      //         _ = println(s"started fiberA aka ${fiberA.hashCode()}")
+      //         fiberB <- F.start(ParallelF.value(fb))
+      //         _ = println(s"started fiberB aka ${fiberB.hashCode()}")
+
+      //         // start a pair of supervisors to ensure that the opposite is canceled on error
+      //         _ <- F start {
+      //           fiberB.join flatMap {
+      //             case Outcome.Succeeded(fb) => 
+      //               fb.map(x => println(s"supervisor joined fiber b aka ${fiberB.hashCode()} who succeeded with: $x"))
+      //             case x => fiberA.cancel.as(println(s"supervisor joined fiber b aka ${fiberB.hashCode()} who failed with $x"))
+      //           }
+      //         }
+
+      //         _ <- F start {
+      //           fiberA.join flatMap {
+      //             case Outcome.Succeeded(fa) =>
+      //               fa.map(x => println(s"supervisor joined fiber a aka ${fiberA.hashCode()} who succeeded with: $x"))
+      //             case x => fiberB.cancel.as(println(s"supervisor joined fiber a aka ${fiberA.hashCode()} who failed with $x"))
+      //           }
+      //         }
+
+      //         a <- F
+      //           .onCancel(poll(fiberA.join), F.both(fiberA.cancel.as(println(s"1st onCancel cancelling fiberA aka ${fiberA.hashCode()}")), fiberB.cancel.as(println(s"1st onCancel cancelling fiberB aka ${fiberB.hashCode()}"))).void)
+      //           .flatMap[A] {
+      //             case Outcome.Succeeded(fa) =>
+      //               println(s"joined with fiber a aka ${fiberA.hashCode()} who succeeded")
+      //               fa
+
+      //             case Outcome.Errored(e) =>
+      //               println(s"joined with fiber a aka ${fiberA.hashCode()} who errored with $e")
+      //               fiberB.cancel *> F.raiseError(e)
+
+      //             case Outcome.Canceled() =>
+      //               println(s"joined with fiber a aka ${fiberA.hashCode()} who was cancelled")
+      //               fiberB.cancel *> poll {
+      //                 fiberB.join flatMap {
+      //                   case Outcome.Succeeded(_) | Outcome.Canceled() =>
+      //                     println(s"joined with fiber b aka ${fiberB.hashCode()} who succeeded or cancelled, but self-cancelling b/c fiber a aka ${fiberA.hashCode()} canceled")
+      //                     F.canceled *> F.never
+      //                   case Outcome.Errored(e) =>
+      //                     println(s"joined with fiber b aka ${fiberB.hashCode()} who errored with $e, raising despite fiber a's aka ${fiberA.hashCode()} cancellation")
+      //                     F.raiseError(e)
+      //                 }
+      //               }
+      //           }
+
+      //         _ = println(s"I joined with fiberA aka ${fiberA.hashCode()} and got: $a")
+
+      //         z <- F.onCancel(poll(fiberB.join), fiberB.cancel.as(println("2nd onCancel cancelling fiber b"))).flatMap[Z] {
+      //           case Outcome.Succeeded(fb) =>
+      //             fb.map(b => {
+      //               val fab = f(a, b)
+      //               println(s"successfully map2ed: $fab")
+      //               fab
+      //             })
+
+      //           case Outcome.Errored(e) =>
+      //             println(s"fiber a succeeded with $a and joined fiber b which failed with $e")
+      //             F.raiseError(e)
+
+      //           case Outcome.Canceled() =>
+      //             println(s"fiber a succeeded with $a and joined fiber b which was cancelled")
+      //             poll {
+      //               fiberA.join flatMap {
+      //                 case Outcome.Succeeded(_) | Outcome.Canceled() =>
+      //                   F.canceled *> F.never
+      //                 case Outcome.Errored(e) =>
+      //                   F.raiseError(e)
+      //               }
+      //             }
+      //         }
+      //       } yield z
+      //     }
+      //     fz.attempt.map { z =>
+      //       println(s"Attempted map2 and got: $z, now I will rethrow it")
+      //       z
+      //     }.rethrow
+      //   }
+
       final override def map2Eval[A, B, Z](fa: ParallelF[F, A], fb: Eval[ParallelF[F, B]])(
           f: (A, B) => Z): Eval[ParallelF[F, Z]] =
         fb.map(map2(fa, _)(f))

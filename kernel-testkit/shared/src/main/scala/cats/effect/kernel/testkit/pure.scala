@@ -281,6 +281,8 @@ object pure {
 
       def start[A](fa: PureConc[E, A]): PureConc[E, Fiber[PureConc[E, *], E, A]] =
         Thread.annotate("start", true) {
+          // println("here we are once again" + System.nanoTime())
+          // (new Exception).printStackTrace()
           MVar.empty[PureConc[E, *], Outcome[PureConc[E, *], E, A]].flatMap { state =>
             val fiber = new PureFiber[E, A](state)
 
