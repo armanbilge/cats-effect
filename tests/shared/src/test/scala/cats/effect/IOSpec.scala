@@ -1399,10 +1399,11 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
     )
 
   "IO.Par" should {
-    "equal itself when using map2" in ticked { implicit ticker =>
+    "equal itself when using parMap2" in ticked { implicit ticker =>
       implicit val eq = parallelEq[Int]
-      forAll { (ioa: IO[Int], iob: IO[Int]) => ioa.map2(iob)(_ + _) eqv ioa.map2(iob)(_ + _) }
-        .set(minTestsOk = 10000)
+      forAll { (ioa: IO[Int], iob: IO[Int]) =>
+        (ioa, iob).parMapN(_ + _) eqv (ioa, iob).parMapN(_ + _)
+      }.set(minTestsOk = 10000)
     }
     "equal itself when using parProduct" in ticked { implicit ticker =>
       implicit val eq = parallelEq[Int]
