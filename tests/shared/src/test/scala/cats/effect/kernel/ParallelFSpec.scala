@@ -17,6 +17,8 @@
 package cats.effect
 package kernel
 
+import cats.syntax.all._
+import cats.effect.syntax.all._
 import cats.effect.kernel.instances.all._
 import cats.effect.kernel.testkit.PureConcGenerators._
 import cats.effect.kernel.testkit.pure._
@@ -25,20 +27,73 @@ import cats.laws.discipline.CommutativeApplicativeTests
 import cats.laws.discipline.ParallelTests
 import cats.laws.discipline.arbitrary.catsLawsCogenForIor
 import org.typelevel.discipline.specs2.mutable.Discipline
+import org.scalacheck.Prop, Prop.forAll
 
 class ParallelFSpec extends BaseSpec with Discipline {
 
-  checkAll(
-    "Parallel[F, ParallelF]",
-    ParallelTests[PureConc[Int, *], ParallelF[PureConc[Int, *], *]].parallel[Int, Int])
+  implicit val showIntInt = cats.Show.fromToString[Int => Int]
+  type F[A] = PureConc[Int, A]
+  val F = GenConcurrent[PureConc[Int, *]]
+  val fa: F[Int] = F
+    .uncancelable[Int](poll => F.canceled.as(42))
+    .onCancel(F.unit)
+  val fab: F[Int => Int] = F.pure((i: Int) => i + 1).flatTap(_ => F.canceled)
+  val fbc: F[Int => Int] = F.raiseError[Int => Int](42502142)
+  println(fa.show)
+  println(fab.show)
+  println(fbc.show)
 
-  checkAll(
-    "CommutativeApplicative[ParallelF]",
-    CommutativeApplicativeTests[ParallelF[PureConc[Int, *], *]]
-      .commutativeApplicative[Int, Int, Int])
+  "ParallelF" should {
+    "not hang" in {
+      val compose: (Int => Int) => (Int => Int) => (Int => Int) = _.compose
+      // ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(fbc)
+      //   .map(compose)
+      //   .ap(ParallelF(fab))
+      //   .ap(ParallelF(fa))
 
-  checkAll(
-    "Align[ParallelF]",
-    AlignTests[ParallelF[PureConc[Int, *], *]].align[Int, Int, Int, Int])
+      // This one hangs
+      ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(F.pure(42))
+
+      // This one does not
+      // ParallelF(fbc).map(compose).ap(ParallelF(fab))ap(ParallelF(fa)) eqv ParallelF(F.pure(42))
+    }
+  }
+
+  // "ParallelF" should {
+  //   "equal itself" in {
+  //     forAll {
+  //       (
+  //           fa: PureConc[Int, Int],
+  //           fab: PureConc[Int, Int => Int],
+  //           fbc: PureConc[Int, Int => Int]) =>
+  //         implicit val showIntInt = cats.Show.fromToString[Int => Int]
+  //         val compose: (Int => Int) => (Int => Int) => (Int => Int) = _.compose
+  //         println("START")
+  //         println(fa.show)
+  //         println(fab.show)
+  //         println(fbc.show)
+  //         println("STOP")
+  //         val result = ParallelF(fbc).ap(ParallelF(fab).ap(ParallelF(fa))) eqv ParallelF(fbc).map(compose).ap(ParallelF(fab)).ap(ParallelF(fa))
+  //         if (!result) {
+  //           println(fa.show)
+  //           println(fab.show)
+  //           println(fbc.show)
+  //         }
+  //         result
+  //     }
+  //   }
+  // }
+
+  // checkAll(
+  //   "Parallel[F, ParallelF]",
+  //   ParallelTests[PureConc[Int, *], ParallelF[PureConc[Int, *], *]].parallel[Int, Int])
+
+  // checkAll(
+  //   "CommutativeApplicative[ParallelF]",
+  //   CommutativeApplicativeTests[Option].applicative[Int, Int, Int])
+
+  // checkAll(
+  //   "Align[ParallelF]",
+  //   AlignTests[ParallelF[PureConc[Int, *], *]].align[Int, Int, Int, Int])
 
 }
