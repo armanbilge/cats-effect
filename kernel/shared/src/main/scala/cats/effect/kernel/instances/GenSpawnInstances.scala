@@ -74,7 +74,7 @@ trait GenSpawnInstances {
               }
 
               a <- F
-                .onCancel(poll(fiberA.join), F.both(fiberA.cancel, fiberB.cancel).void)
+                .onCancel(poll(fiberA.join), F.product(fiberA.cancel, fiberB.cancel).void)
                 .flatMap[A] {
                   case Outcome.Succeeded(fa) =>
                     fa

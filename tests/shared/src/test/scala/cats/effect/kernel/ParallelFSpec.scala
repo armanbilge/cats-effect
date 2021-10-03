@@ -33,12 +33,12 @@ class ParallelFSpec extends BaseSpec with Discipline {
 
   // implicit val showIntInt = cats.Show.fromToString[Int => Int]
 
-  type F[A] = PureConc[Unit, A]
-  val F = GenConcurrent[F]
-  val fa: F[String] = F.pure("a") 
-  val fb: F[String] = F.pure("b")
-  val fc: F[Unit] = F.raiseError[Unit](())
-  run(ParallelF.value(ParallelF(fa).product(ParallelF(fb)).product(ParallelF(fc))).attempt.map(x => println(s"can we make it this far? $x")))
+  // type F[A] = PureConc[Unit, A]
+  // val F = GenConcurrent[F]
+  // val fa: F[String] = F.pure("a") 
+  // val fb: F[String] = F.pure("b")
+  // val fc: F[Unit] = F.raiseError[Unit](())
+  // run(ParallelF.value(ParallelF(fa).product(ParallelF(fb)).product(ParallelF(fc))).attempt.map(x => println(s"can we make it this far? $x")))
   // println(ParallelF.value(ParallelF(fa).product(ParallelF(fb)).product(ParallelF(fc))).show)
   // println(ParallelF.value(ParallelF(fa).product(ParallelF(fb))).show)
   // println(ParallelF.value(ParallelF(fc).product(ParallelF(fb).product(ParallelF(fa)))).show)
@@ -93,16 +93,16 @@ class ParallelFSpec extends BaseSpec with Discipline {
   //   }
   // }
 
-  // checkAll(
-  //   "Parallel[F, ParallelF]",
-  //   ParallelTests[PureConc[Int, *], ParallelF[PureConc[Int, *], *]].parallel[Int, Int])
+  checkAll(
+    "Parallel[F, ParallelF]",
+    ParallelTests[PureConc[Int, *], ParallelF[PureConc[Int, *], *]].parallel[Int, Int])
 
-  // checkAll(
-  //   "CommutativeApplicative[ParallelF]",
-  //   CommutativeApplicativeTests[Option].applicative[Int, Int, Int])
+  checkAll(
+    "CommutativeApplicative[ParallelF]",
+    CommutativeApplicativeTests[Option].applicative[Int, Int, Int])
 
-  // checkAll(
-  //   "Align[ParallelF]",
-  //   AlignTests[ParallelF[PureConc[Int, *], *]].align[Int, Int, Int, Int])
+  checkAll(
+    "Align[ParallelF]",
+    AlignTests[ParallelF[PureConc[Int, *], *]].align[Int, Int, Int, Int])
 
 }
