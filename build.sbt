@@ -95,7 +95,7 @@ val PrimaryOS = "ubuntu-latest"
 val Windows = "windows-latest"
 
 val ScalaJSJava = "adoptium@8"
-val Scala213 = "2.13.7"
+val Scala213 = "2.13.6"
 val Scala3 = "3.0.2"
 
 ThisBuild / crossScalaVersions := Seq(Scala3, "2.12.15", Scala213)
@@ -456,11 +456,14 @@ lazy val tests = crossProject(JSPlatform, JVMPlatform)
     name := "cats-effect-tests",
     libraryDependencies ++= Seq(
       "org.typelevel" %%% "discipline-specs2" % DisciplineVersion % Test,
-      "org.typelevel" %%% "cats-kernel-laws" % CatsVersion % Test)
+      "org.typelevel" %%% "cats-kernel-laws" % CatsVersion % Test),
   )
   .jvmSettings(
     Test / fork := true,
     Test / javaOptions += s"-Dsbt.classpath=${(Test / fullClasspath).value.map(_.data.getAbsolutePath).mkString(File.pathSeparator)}")
+  .jsSettings(
+    libraryDependencies += "co.fs2" %%% "fs2-core" % "3.2.2" exclude("co.fs2", "fs2-core_sjs1_2.13"),
+  )
 
 /**
  * Implementations lof standard functionality (e.g. Semaphore, Console, Queue) purely in terms
