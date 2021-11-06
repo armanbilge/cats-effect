@@ -20,6 +20,7 @@ import scala.concurrent.ExecutionContext
 
 import java.util.concurrent.{Executors, ScheduledThreadPoolExecutor}
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ThreadFactory
 
 private[unsafe] abstract class IORuntimeCompanionPlatform { this: IORuntime.type =>
 
@@ -27,10 +28,21 @@ private[unsafe] abstract class IORuntimeCompanionPlatform { this: IORuntime.type
   def createDefaultComputeThreadPool(
       self: => IORuntime,
       threads: Int = Math.max(2, Runtime.getRuntime().availableProcessors()),
-      threadPrefix: String = "io-compute"): (WorkStealingThreadPool, () => Unit) = {
-    val threadPool =
-      new WorkStealingThreadPool(threads, threadPrefix, self)
-    (threadPool, { () => threadPool.shutdown() })
+      threadPrefix: String = "io-compute"): (ExecutionContext, () => Unit) = {
+    // val threadPool =
+    //   new WorkStealingThreadPool(threads, threadPrefix, self)
+    val threadPool = Executors.newFixedThreadPool(
+      threads,
+      new ThreadFactory {
+        val ctr = new AtomicInteger(0)
+        def newThread(r: Runnable): Thread = {
+          val back = new Thread(r, s"$threadPrefix-${ctr.getAndIncrement()}")
+          back.setDaemon(true)
+          back
+        }
+      }
+    )
+    (ExecutionContext.fromExecutor(threadPool), { () => threadPool.shutdown() })
   }
 
   def createDefaultBlockingExecutionContext(
