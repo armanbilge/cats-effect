@@ -115,7 +115,7 @@ class IOAppSpec extends Specification {
     }
   }
 
-  test(JVM)
+  // test(JVM)
   test(Node)
 
   def test(platform: Platform): Unit = {
