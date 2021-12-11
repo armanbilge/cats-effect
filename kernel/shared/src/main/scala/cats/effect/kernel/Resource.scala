@@ -188,6 +188,7 @@ sealed abstract class Resource[F[_], +A] {
           }
         case Eval(fa) =>
           fa.flatMap(a => continue(Resource.pure(a), stack))
+        case mapK @ MapK(_, _, _) => loop(mapK.compile, stack)
       }
     loop(this, Nil)
   }
@@ -316,26 +317,8 @@ sealed abstract class Resource[F[_], +A] {
    */
   def mapK[G[_]](
       f: F ~> G
-  )(implicit F: MonadCancel[F, _], G: MonadCancel[G, _]): Resource[G, A] =
-    this match {
-      case Allocate(resource) =>
-        Resource.applyFull { (gpoll: Poll[G]) =>
-          gpoll {
-            f {
-              F.uncancelable { (fpoll: Poll[F]) => resource(fpoll) }
-            }
-          }.map {
-            case (a, release) =>
-              a -> ((r: ExitCase) => f(release(r)))
-          }
-        }
-      case Bind(source, f0) =>
-        // we insert a bind to get stack safety
-        suspend(G.unit >> source.mapK(f).pure[G]).flatMap(x => f0(x).mapK(f))
-      case Pure(a) =>
-        Resource.pure(a)
-      case Eval(fea) => Resource.eval(f(fea))
-    }
+  )(implicit F: MonadCancel[F, Throwable]): Resource[G, A] =
+    MapK[F, G, A](this, f, F)
 
   /**
    * Runs `precede` before this resource is allocated.
@@ -438,6 +421,8 @@ sealed abstract class Resource[F[_], +A] {
 
         case Eval(fa) =>
           fa.flatMap(a => continue(Resource.pure(a), stack, release))
+
+        case mapK @ MapK(_, _, _) => loop(mapK.compile, stack, release)
       }
 
     loop(this, Nil, _ => F.unit)
@@ -628,6 +613,7 @@ sealed abstract class Resource[F[_], +A] {
         Resource.pure(p.a.asRight)
       case e @ Eval(_) =>
         Resource.eval(e.fa.attempt)
+      case mapK @ MapK(source, f, F) => MapK(source.attempt(F), f)
     }
 
   def handleErrorWith[B >: A, E](f: E => Resource[F, B])(
@@ -1011,6 +997,20 @@ object Resource extends ResourceFOInstances0 with ResourceHOInstances0 with Reso
   final case class Pure[F[_], +A](a: A) extends Resource[F, A]
 
   final case class Eval[F[_], A](fa: F[A]) extends Resource[F, A]
+
+  final case class MapK[F[_], G[_], A](
+      source: Resource[F, A],
+      f: F ~> G,
+      F: MonadCancel[F, Throwable])
+      extends Resource[G, A] {
+    def compile(implicit G: MonadCancel[G, _]): Resource[G, A] =
+      Resource
+        .makeCaseFull[G, (A, ExitCase => F[Unit])](poll => poll(f(source.allocatedFull(F)))) {
+          case ((_, finalizer), exitCase) =>
+            f(finalizer(exitCase))
+        }
+        .map(_._1)
+  }
 
   /**
    * Type for signaling the exit condition of an effectful computation, that may either succeed,
