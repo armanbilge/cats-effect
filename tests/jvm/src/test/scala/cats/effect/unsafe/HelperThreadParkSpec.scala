@@ -34,7 +34,7 @@ class HelperThreadParkSpec extends BaseSpec {
           val (scheduler, schedDown) =
             IORuntime.createDefaultScheduler(threadPrefix = s"io-scheduler-${getClass.getName}")
           val (compute, compDown) =
-            IORuntime.createWorkStealingComputeThreadPool(
+            IORuntime.createDefaultComputeThreadPool(
               threadPrefix = s"io-compute-${getClass.getName}",
               threads = 2)
 

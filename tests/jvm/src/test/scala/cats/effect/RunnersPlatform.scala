@@ -33,7 +33,7 @@ trait RunnersPlatform extends BeforeAfterAll {
     val (scheduler, schedDown) =
       IORuntime.createDefaultScheduler(threadPrefix = s"io-scheduler-${getClass.getName}")
     val (compute, compDown) =
-      IORuntime.createWorkStealingComputeThreadPool(threadPrefix =
+      IORuntime.createDefaultComputeThreadPool(threadPrefix =
         s"io-compute-${getClass.getName}")
 
     runtime0 = IORuntime(
