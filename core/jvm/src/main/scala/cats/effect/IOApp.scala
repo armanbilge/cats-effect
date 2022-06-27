@@ -20,7 +20,7 @@ import cats.effect.std.Console
 import cats.effect.tracing.TracingConstants._
 import cats.syntax.all._
 
-import scala.concurrent.{blocking, CancellationException, ExecutionContext}
+import scala.concurrent.{blocking, CancellationException, ExecutionContextExecutor}
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
 
@@ -204,8 +204,8 @@ trait IOApp {
    * calling thread (for example, LWJGL). In these scenarios, it is recommended that the
    * absolute minimum possible amount of work is handed off to the main thread.
    */
-  protected lazy val MainThread: ExecutionContext =
-    new ExecutionContext {
+  protected lazy val MainThread: ExecutionContextExecutor =
+    new ExecutionContextExecutor {
       def reportFailure(t: Throwable): Unit =
         t match {
           case NonFatal(t) =>
