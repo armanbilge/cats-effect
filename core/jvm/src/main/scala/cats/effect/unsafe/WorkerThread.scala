@@ -27,6 +27,7 @@ import scala.util.control.NonFatal
 import java.util.concurrent.{ArrayBlockingQueue, ThreadLocalRandom}
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.LockSupport
+import java.util.PriorityQueue
 
 /**
  * Implementation of the worker thread at the heart of the [[WorkStealingThreadPool]].
@@ -43,6 +44,7 @@ private final class WorkerThread(
     idx: Int,
     // Local queue instance with exclusive write access.
     private[this] var queue: LocalQueue,
+    private[this] var sleepQueue: PriorityQueue[ScheduledTask],
     // The state of the `WorkerThread` (parked/unparked).
     private[this] var parked: AtomicBoolean,
     // External queue used by the local queue for offloading excess fibers, as well as
@@ -654,7 +656,7 @@ private final class WorkerThread(
         // for unparking.
         val idx = index
         val clone =
-          new WorkerThread(idx, queue, parked, external, fiberBag, pool)
+          new WorkerThread(idx, queue, sleepQueue, parked, external, fiberBag, pool)
         pool.replaceWorker(idx, clone)
         pool.blockedWorkerThreadCounter.incrementAndGet()
         clone.start()
