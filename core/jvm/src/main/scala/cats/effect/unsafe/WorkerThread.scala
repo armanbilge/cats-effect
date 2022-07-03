@@ -367,6 +367,12 @@ private final class WorkerThread(
 
       ((state & ExternalQueueTicksMask): @switch) match {
         case 0 =>
+          val now = System.currentTimeMillis()
+          while (!sleepQueue.isEmpty() && sleepQueue.peek().at <= now) {
+            val task = sleepQueue.poll()
+            if (!task.canceled) schedule(task.runnable)
+          }
+
           // Obtain a fiber or batch of fibers from the external queue.
           val element = external.poll(rnd)
           if (element.isInstanceOf[Array[Runnable]]) {
