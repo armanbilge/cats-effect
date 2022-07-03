@@ -41,6 +41,9 @@ import java.util.concurrent.{ConcurrentSkipListSet, ThreadLocalRandom}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import java.util.concurrent.locks.LockSupport
 import java.util.PriorityQueue
+import scala.concurrent.duration.FiniteDuration
+import java.time.Instant
+import java.time.temporal.ChronoField
 
 /**
  * Work-stealing thread pool which manages a pool of [[WorkerThread]] s for the specific purpose
@@ -63,7 +66,8 @@ private[effect] final class WorkStealingThreadPool(
     private[unsafe] val blockerThreadPrefix: String, // prefix for the name of worker threads currently in a blocking region
     private[unsafe] val runtimeBlockingExpiration: Duration,
     reportFailure0: Throwable => Unit
-) extends ExecutionContextExecutor {
+) extends ExecutionContextExecutor
+    with Scheduler {
 
   import TracingConstants._
   import WorkStealingThreadPoolConstants._
@@ -429,6 +433,12 @@ private[effect] final class WorkStealingThreadPool(
     ()
   }
 
+  private[this] def scheduleExternal(task: ScheduledTask): Unit = {
+    val random = ThreadLocalRandom.current()
+    workerThreads(random.nextInt(workerThreads.length)).schedule(task)
+    ()
+  }
+
   /**
    * Returns a snapshot of the fibers currently live on this thread pool.
    *
@@ -616,4 +626,32 @@ private[effect] final class WorkStealingThreadPool(
    */
   private[unsafe] def getSuspendedFiberCount(): Long =
     workerThreads.map(_.getSuspendedFiberCount().toLong).sum
+
+  def sleep(delay: FiniteDuration, runnable: Runnable): Runnable = {
+    val pool = this
+    val thread = Thread.currentThread()
+    val task = new ScheduledTask(nowMillis() + delay.toMillis, runnable)
+
+    if (thread.isInstanceOf[WorkerThread]) {
+      val worker = thread.asInstanceOf[WorkerThread]
+      if (worker.isOwnedBy(pool)) {
+        worker.schedule(task)
+      } else {
+        scheduleExternal(task)
+      }
+    } else {
+      scheduleExternal(task)
+    }
+
+    task
+  }
+
+  def nowMillis() = System.currentTimeMillis()
+
+  override def nowMicros(): Long = {
+    val now = Instant.now()
+    now.getEpochSecond * 1000000 + now.getLong(ChronoField.MICRO_OF_SECOND)
+  }
+
+  def monotonicNanos() = System.nanoTime()
 }
