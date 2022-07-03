@@ -124,6 +124,11 @@ private final class WorkerThread(
     ()
   }
 
+  def schedule(task: ScheduledTask): Unit = {
+    sleepQueue.add(task)
+    ()
+  }
+
   /**
    * Specifically supports the `cede` and `autoCede` mechanisms of the [[java.lang.Runnable]]
    * runloop. In the case where the local queue is empty prior to enqueuing the argument fiber,
