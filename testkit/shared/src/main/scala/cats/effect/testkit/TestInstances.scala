@@ -33,6 +33,7 @@ import cats.syntax.all._
 import org.scalacheck.{Arbitrary, Cogen, Gen, Prop}
 
 import scala.annotation.implicitNotFound
+import scala.concurrent.CancellationException
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
@@ -196,19 +197,36 @@ trait TestInstances extends ParallelFGenerators with OutcomeGenerators with Sync
       F: MonadCancel[F, Throwable]): Prop =
     view(r.use(_.pure[F]))
 
-  private val someK: Id ~> Option =
-    new ~>[Id, Option] { def apply[A](a: A) = a.some }
+  private val someK: IO ~> Option =
+    new ~>[IO, Option] {
+      def apply[A](ioa: IO[A]) = ioa.syncStep(Int.MaxValue).unsafeRunSync().toOption.get.some
+    }
 
   def unsafeRun[A](ioa: IO[A])(implicit ticker: Ticker): Outcome[Option, Throwable, A] =
     try {
-      var results: Outcome[Option, Throwable, A] = Outcome.Succeeded(None)
+      // var results: Outcome[Option, Throwable, A] = Outcome.Succeeded(None)
 
-      ioa
+      val program = ioa
         .flatMap(IO.pure(_))
         .handleErrorWith(IO.raiseError(_))
-        .unsafeRunAsyncOutcome { oc => results = oc.mapK(someK) }(materializeRuntime)
+        .start
+        .flatMap(_.join)
+        .map(_.mapK(someK))
 
-      ticker.ctx.tickAll()
+      val results =
+        TestControl
+          .executeEmbed(program)
+          .recover {
+            case _: CancellationException => Outcome.canceled[Option, Throwable, A]
+            case _: TestControl.NonTerminationException =>
+              Outcome.succeeded[Option, Throwable, A](None)
+          }
+          .syncStep(Int.MaxValue)
+          .unsafeRunSync()
+          .toOption
+          .get
+
+      // ticker.ctx.tickAll()
 
       /*println("====================================")
       println(s"completed ioa with $results")
