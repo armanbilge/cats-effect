@@ -725,6 +725,28 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
         outerR mustEqual 1
         innerR mustEqual 2
       }
+
+      "run async setup and cancel on evalOned ExecutionContext" in ticked { implicit ticker =>
+        forAll { (executionContext: ExecutionContext) =>
+          def test(setup: Deferred[IO, Boolean], cancel: Deferred[IO, Boolean]): IO[Nothing] =
+            IO.async[Nothing] { _ =>
+              IO.executionContext
+                .flatMap { ec => setup.complete(ec eq executionContext) }
+                .as(Some(IO.executionContext.flatMap { ec =>
+                  cancel.complete(ec eq executionContext).void
+                }))
+            }.evalOn(executionContext)
+
+          for {
+            setup <- IO.deferred[Boolean]
+            cancel <- IO.deferred[Boolean]
+            f <- test(setup, cancel).start
+            _ <- setup.get.map(_ must beTrue)
+            _ <- f.cancel
+            _ <- cancel.get.map(_ must beTrue)
+          } yield true
+        }
+      }
     }
 
     "cancelation" should {
