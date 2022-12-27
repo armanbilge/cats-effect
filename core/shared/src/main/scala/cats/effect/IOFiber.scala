@@ -912,12 +912,19 @@ private final class IOFiber[A](
 
         case 20 =>
           val cur = cur0.asInstanceOf[EvalOn[Any]]
+          val ec = cur.ec
 
           /* fast-path when it's an identity transformation */
-          if (cur.ec eq currentCtx) {
+          val noop = if (ec.isInstanceOf[WorkStealingThreadPool]) {
+            val wstp = ec.asInstanceOf[WorkStealingThreadPool]
+            wstp.amRunningOn()
+          } else {
+            ec eq currentCtx
+          }
+
+          if (noop) {
             runLoop(cur.ioa, nextCancelation, nextAutoCede)
           } else {
-            val ec = cur.ec
             objectState.push(currentCtx)
             currentCtx = ec
             conts = ByteStack.push(conts, EvalOnK)
