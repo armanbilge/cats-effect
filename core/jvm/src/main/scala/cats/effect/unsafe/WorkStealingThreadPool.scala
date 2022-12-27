@@ -371,6 +371,21 @@ private[effect] final class WorkStealingThreadPool(
   }
 
   /**
+   * Check if we are currently running on this pool.
+   */
+  private[effect] def amRunningOn(): Boolean = {
+    val pool = this
+    val thread = Thread.currentThread()
+
+    if (thread.isInstanceOf[WorkerThread]) {
+      val worker = thread.asInstanceOf[WorkerThread]
+      worker.isOwnedBy(pool)
+    } else {
+      false
+    }
+  }
+
+  /**
    * Rechedules a [[java.lang.Runnable]] on this thread pool.
    *
    * If the request comes from a [[WorkerThread]], depending on the current load, the task can

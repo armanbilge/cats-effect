@@ -17,6 +17,7 @@
 package cats.effect
 
 import cats.effect.std.Semaphore
+import cats.effect.unsafe.WorkStealingThreadPool
 import cats.syntax.all._
 
 import org.scalacheck.Prop.forAll
@@ -258,6 +259,13 @@ trait IOPlatformSpecification { self: BaseSpec with ScalaCheck =>
         } must completeAs(true)
       }
 
+      "evalOn after blocking runs on compute thread" in real {
+        IO.executionContext.flatMap { ec =>
+          IO.blocking(()) *> IO {
+            ec.asInstanceOf[WorkStealingThreadPool].amRunningOn() should beTrue
+          }.evalOn(ec)
+        }
+      }
     }
   }
 }
