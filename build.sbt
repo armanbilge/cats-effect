@@ -938,6 +938,8 @@ lazy val example = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .dependsOn(core)
   .enablePlugins(NoPublishPlugin)
   .settings(name := "cats-effect-example")
+  .settings(libraryDependencies += "co.fs2" %%% "fs2-core" % "3.6.1")
+  .settings(fork := true)
   .jsSettings(scalaJSUseMainModuleInitializer := true)
 
 /**

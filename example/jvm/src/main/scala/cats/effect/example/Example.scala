@@ -14,11 +14,21 @@
  * limitations under the License.
  */
 
-package cats.effect
-package example
+import cats.effect._
+import fs2._
 
-object Example extends IOApp.Simple {
+import scala.concurrent.duration._
 
-  def run: IO[Unit] =
-    (IO(println("started")) >> IO.never).onCancel(IO(println("canceled")))
+object App extends IOApp.Simple {
+  override def computeWorkerThreadCount = 2
+
+  override def runtimeConfig = 
+    super.runtimeConfig.copy(cpuStarvationCheckInitialDelay = Duration.Inf)
+
+  def run = {
+    val interruptSoon = (IO(println("huh")) *> IO.sleep(20.millis) *> IO {
+      println("ho"); System.out.flush()
+    }).attempt.debug()
+    Stream.constant(true).interruptWhen(interruptSoon).compile.drain.debug().replicateA(2).void
+  }
 }

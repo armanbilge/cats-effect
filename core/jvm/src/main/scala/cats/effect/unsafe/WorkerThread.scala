@@ -119,6 +119,7 @@ private final class WorkerThread(
    *   the fiber to be scheduled on the local queue
    */
   def schedule(fiber: Runnable): Unit = {
+    println("scheudling locally, notifying parked")
     val rnd = random
     queue.enqueue(fiber, external, rnd)
     pool.notifyParked(rnd)
@@ -147,6 +148,7 @@ private final class WorkerThread(
 
   def sleep(delay: FiniteDuration, callback: Right[Nothing, Unit] => Unit): Runnable = {
     // note that blockers aren't owned by the pool, meaning we only end up here if !blocking
+    println(s"submitted w delay $delay")
     val sleepers = sleepersQueue
     val scb = SleepCallback.create(delay, callback, System.nanoTime(), sleepers)
     sleepers += scb
@@ -394,25 +396,6 @@ private final class WorkerThread(
 
       val sleepers = sleepersQueue
 
-      if (sleepers.nonEmpty) {
-        val now = System.nanoTime()
-
-        var cont = true
-        while (cont) {
-          val head = sleepers.head()
-
-          if (head.triggerTime - now <= 0) {
-            if (head.get()) {
-              head.callback(RightUnit)
-            }
-            sleepers.popHead()
-            cont = sleepers.nonEmpty
-          } else {
-            cont = false
-          }
-        }
-      }
-
       ((state & ExternalQueueTicksMask): @switch) match {
         case 0 =>
           if (pool.blockedThreadDetectionEnabled) {
@@ -550,6 +533,7 @@ private final class WorkerThread(
           if (fiber ne null) {
             // Successful steal. Announce that the current thread is no longer
             // looking for work.
+            println(s"stole $fiber")
             pool.transitionWorkerFromSearching(rnd)
             // Run the stolen fiber.
             try fiber.run()
@@ -643,6 +627,27 @@ private final class WorkerThread(
           }
 
         case _ =>
+          if (sleepers.nonEmpty) {
+            println(sleepers)
+            val now = System.nanoTime()
+
+            var cont = true
+            while (cont) {
+              val head = sleepers.head()
+
+              if (head.triggerTime - now <= 0) {
+                if (head.get()) {
+                  println("calling back")
+                  head.callback(RightUnit)
+                }
+                sleepers.popHead()
+                cont = sleepers.nonEmpty
+              } else {
+                cont = false
+              }
+            }
+          }
+
           // Check the queue bypass reference before dequeueing from the local
           // queue.
           val fiber = if (cedeBypass eq null) {

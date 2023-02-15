@@ -28,6 +28,7 @@ private final class SleepCallback private (
 
   def callback(r: Right[Nothing, Unit]): Unit = {
     val cb = _callback
+    println((cb, get()))
     if (cb != null) {
       cb(r)
     }
