@@ -964,6 +964,18 @@ class IOSpec extends BaseSpec with Discipline with IOPlatformSpecification {
             result <- IO((end - start) must beLessThan(5.seconds))
           } yield result
         }
+
+        "not leak result on cancelation" in ticked { implicit ticker =>
+          val test = for {
+            f <- IO.race(IO.sleep(2.seconds).uncancelable, IO.never).start
+            _ <- IO.sleep(1.second)
+            _ <- f.cancel
+            oc <- f.join
+            _ <- oc.embedError
+          } yield ()
+
+          test must completeAs(())
+        }
       }
 
       "allow for misordered nesting" in ticked { implicit ticker =>
