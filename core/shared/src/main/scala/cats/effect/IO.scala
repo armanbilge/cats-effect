@@ -16,24 +16,6 @@
 
 package cats.effect
 
-import cats.{
-  Align,
-  Alternative,
-  Applicative,
-  CommutativeApplicative,
-  Eval,
-  Functor,
-  Id,
-  Monad,
-  Monoid,
-  Now,
-  Parallel,
-  Semigroup,
-  SemigroupK,
-  Show,
-  StackSafeMonad,
-  Traverse
-}
 import cats.data.Ior
 import cats.effect.instances.spawn
 import cats.effect.kernel.CancelScope
@@ -41,21 +23,36 @@ import cats.effect.kernel.GenTemporal.handleDuration
 import cats.effect.std.{Backpressure, Console, Env, Supervisor, UUIDGen}
 import cats.effect.tracing.{Tracing, TracingEvent}
 import cats.syntax.all._
-
-import scala.annotation.unchecked.uncheckedVariance
-import scala.concurrent.{
-  CancellationException,
-  ExecutionContext,
-  Future,
-  Promise,
-  TimeoutException
+import cats.{
+  Align,
+  Alternative,
+  Applicative,
+  CommutativeApplicative,
+  Eval,
+  Foldable,
+  Functor,
+  Id,
+  Monad,
+  Monoid,
+  NonEmptyParallel,
+  Now,
+  Parallel,
+  Semigroup,
+  SemigroupK,
+  Show,
+  StackSafeMonad,
+  Traverse,
+  TraverseFilter,
+  UnorderedTraverse
 }
-import scala.concurrent.duration._
-import scala.util.{Failure, Success, Try}
-import scala.util.control.NonFatal
 
 import java.util.UUID
 import java.util.concurrent.Executor
+import scala.annotation.unchecked.uncheckedVariance
+import scala.concurrent._
+import scala.concurrent.duration._
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /**
  * A pure abstraction representing the intention to perform a side effect, where the result of
@@ -1088,6 +1085,55 @@ private[effect] trait IOLowPriorityImplicits {
 }
 
 object IO extends IOCompanionPlatform with IOLowPriorityImplicits {
+
+  implicit class IOFlatSequenceOps[T[_], A](tiota: T[IO[T[A]]]) {
+    def parFlatSequence(
+        implicit T: Traverse[T],
+        F: cats.FlatMap[T],
+        P: Parallel[IO]): IO[T[A]] =
+      Parallel.parFlatSequence(tiota)(T, F, P)
+
+    def flatSequence(
+        implicit T: Traverse[T],
+        G: Applicative[IO],
+        F: cats.FlatMap[T]): IO[T[A]] = {
+      tiota.sequence(T, G).map(F.flatten)
+    }
+  }
+
+  implicit class IOParallelSequenceFilterOps[T[_], A](x: T[IO[Option[A]]]) {
+    def parSequenceFilter(implicit P: Parallel[IO], T: TraverseFilter[T]): IO[T[A]] =
+      Parallel.parSequenceFilter(x)(T, P)
+  }
+
+  implicit class IOSequenceOps[T[_], A](tioa: T[IO[A]]) {
+    def sequence(implicit T: Traverse[T], G: Applicative[IO]): IO[T[A]] = T.sequence(tioa)(G)
+
+    def sequence_(implicit F: Foldable[T], G: Applicative[IO]): IO[Unit] = F.sequence_(tioa)(G)
+
+    def parSequence(implicit T: Traverse[T], P: Parallel[IO]): IO[T[A]] =
+      Parallel.parSequence(tioa)(T, P)
+
+    def parSequence_(implicit F: Foldable[T], P: Parallel[IO]): IO[Unit] =
+      Parallel.parSequence_(tioa)(F, P)
+
+    def parUnorderedSequence[F[_]](
+        implicit P: Parallel.Aux[IO, F],
+        CA: CommutativeApplicative[F],
+        UT: UnorderedTraverse[T]): IO[T[A]] =
+      Parallel.parUnorderedSequence(tioa)(UT, CA, P)
+  }
+
+  implicit class IOTuple2ParallelOps[A0, A1](val t2: (IO[A0], IO[A1])) {
+    def parMapN[Z](f: (A0, A1) => Z)(implicit p: NonEmptyParallel[IO]): IO[Z] =
+      Parallel.parMap2(t2._1, t2._2)(f)(p)
+
+    def parTupled(implicit p: NonEmptyParallel[IO]): IO[(A0, A1)] =
+      Parallel.parTuple2(t2._1, t2._2)(p)
+
+    def parFlatMapN[Z](f: (A0, A1) => IO[Z])(implicit p: NonEmptyParallel[IO]): IO[Z] =
+      Parallel.parFlatMap2(t2._1, t2._2)(f)(p)
+  }
 
   /**
    * Newtype encoding for an `IO` datatype that has a `cats.Applicative` capable of doing
