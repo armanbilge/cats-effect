@@ -23,6 +23,7 @@ import cats.syntax.all._
 
 import scala.concurrent.{blocking, CancellationException, ExecutionContext}
 import scala.concurrent.duration._
+import scala.util.Try
 import scala.util.control.NonFatal
 
 import java.util.concurrent.{ArrayBlockingQueue, CountDownLatch}
@@ -254,7 +255,9 @@ trait IOApp {
    * Can also be configured by setting the `cats.effect.detectBlockedThreads` system property.
    */
   protected def blockedThreadDetectionEnabled: Boolean =
-    java.lang.Boolean.getBoolean("cats.effect.detectBlockedThreads") // defaults to disabled
+    Try( // swallow SecurityException
+      java.lang.Boolean.getBoolean("cats.effect.detectBlockedThreads") // defaults to disabled
+    ).getOrElse(false)
 
   /**
    * Controls whether non-daemon threads blocking application exit are logged to stderr when the
