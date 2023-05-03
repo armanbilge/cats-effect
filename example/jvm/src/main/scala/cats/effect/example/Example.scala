@@ -14,11 +14,22 @@
  * limitations under the License.
  */
 
-package cats.effect
 package example
+
+import cats.effect._
+import cats.effect.std._
+import cats.syntax.all._
 
 object Example extends IOApp.Simple {
 
-  def run: IO[Unit] =
-    (IO(println("started")) >> IO.never).onCancel(IO(println("canceled")))
+  override def computeWorkerThreadCount = 2
+
+  def run: IO[Unit] = Dispatcher
+    .parallel[IO](await = true)
+    .allocated
+    .flatMap {
+      case (runner, release) =>
+        IO(runner.unsafeRunAndForget(release))
+    }
+    .replicateA_(20000)
 }

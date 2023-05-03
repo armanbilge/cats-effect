@@ -312,7 +312,14 @@ object Dispatcher {
 
       // Alive is the innermost resource so that when releasing
       // the very first thing we do is set dispatcher to un-alive
-      alive <- Resource.make(F.delay(new AtomicBoolean(true)))(ref => F.delay(ref.set(false)))
+      alive <- Resource.make(F.delay({
+        val b = new AtomicBoolean(true)
+        println(s"created ${System.identityHashCode(b)}")
+        b
+      }))(ref => F.delay {
+        println(s"closing ${System.identityHashCode(ref)}")
+        ref.set(false)
+      })
     } yield {
       new Dispatcher[F] {
         override def unsafeRunAndForget[A](fa: F[A]): Unit = {
@@ -323,6 +330,7 @@ object Dispatcher {
         }
 
         def unsafeToFutureCancelable[E](fe: F[E]): (Future[E], () => Future[Unit]) = {
+          println(s"scheduling on ${System.identityHashCode(alive)}")
           val promise = Promise[E]()
 
           val action = fe
@@ -419,7 +427,7 @@ object Dispatcher {
               throw new IllegalStateException("dispatcher already shutdown")
             }
           } else {
-            throw new IllegalStateException("dispatcher already shutdown")
+            throw new IllegalStateException("twilight zone")
           }
         }
       }

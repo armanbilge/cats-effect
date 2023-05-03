@@ -964,6 +964,10 @@ lazy val example = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .dependsOn(core)
   .enablePlugins(NoPublishPlugin)
   .settings(name := "cats-effect-example")
+  .jvmSettings(
+    fork := true,
+    javaOptions += "-Dcats.effect.tracing.exceptions.enhanced=false"
+    )
   .jsSettings(scalaJSUseMainModuleInitializer := true)
 
 /**
