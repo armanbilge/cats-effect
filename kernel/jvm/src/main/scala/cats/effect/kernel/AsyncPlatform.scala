@@ -51,7 +51,8 @@ private[kernel] trait AsyncPlatform[F[_]] extends Serializable { this: Async[F] 
 
               val await = G.onCancel(
                 poll(get),
-                // if cannot cancel, fallback to get
+                // if cannot cancel, fallback to get. we use `mayInterruptIfRunning = false` b/c javadoc says:
+                // this value has no effect in this implementation because interrupts are not used to control processing.
                 G.ifM(lift(delay(cf.cancel(false))))(G.unit, G.void(get))
               )
 
