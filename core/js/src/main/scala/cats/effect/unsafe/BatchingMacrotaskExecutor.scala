@@ -54,18 +54,25 @@ private[effect] final class BatchingMacrotaskExecutor(
    * Whether the `executeBatchTask` needs to be rescheduled
    */
   private[this] var needsReschedule = true
-  private[this] val fibers = new JSArrayQueue[IOFiber[_]]
+  private[this] var currentBatch = new JSArrayQueue[Runnable]
+  private[this] var nextBatch = new JSArrayQueue[Runnable]
 
   private[this] val executeBatchTaskRunnable = new Runnable {
+
     def run() = {
+      if (!nextBatch.isEmpty()) {
+        // make the next batch the current batch
+        val tmp = currentBatch
+        currentBatch = nextBatch
+        nextBatch = tmp
+      }
+
       // do up to batchSize tasks
       var i = 0
-      while (i < batchSize && !fibers.isEmpty()) {
-        val fiber = fibers.take()
+      while (i < batchSize && !currentBatch.isEmpty()) {
+        val fiber = currentBatch.take()
 
-        if (LinkingInfo.developmentMode)
-          if (fiberBag ne null)
-            fiberBag -= fiber
+        unmonitor(fiber)
 
         try fiber.run()
         catch {
@@ -76,7 +83,8 @@ private[effect] final class BatchingMacrotaskExecutor(
         i += 1
       }
 
-      if (!fibers.isEmpty()) // we'll be right back after this (post) message
+      if (!currentBatch.isEmpty() || !nextBatch.isEmpty())
+        // we'll be right back after this (post) message
         MacrotaskExecutor.execute(this)
       else // the batch task will need to be rescheduled when more fibers arrive
         needsReschedule = true
@@ -89,29 +97,38 @@ private[effect] final class BatchingMacrotaskExecutor(
     () => executeBatchTaskRunnable.run()
 
   /**
-   * Execute the `runnable` in the next iteration of the event loop.
+   * Schedule the `runnable` for the next batch, which will execute in the next iteration of the
+   * event loop.
    */
-  def execute(runnable: Runnable): Unit =
-    MacrotaskExecutor.execute(monitor(runnable))
+  def execute(runnable: Runnable): Unit = {
+    monitor(runnable)
+
+    nextBatch.offer(runnable)
+
+    if (needsReschedule) {
+      needsReschedule = false
+      MacrotaskExecutor.execute(executeBatchTaskRunnable)
+      ()
+    }
+  }
 
   /**
    * Schedule the `fiber` for the next available batch. This is often the currently executing
    * batch.
    */
-  def schedule(fiber: IOFiber[_]): Unit = {
-    if (LinkingInfo.developmentMode)
-      if (fiberBag ne null)
-        fiberBag += fiber
+  def schedule(fiber: Runnable): Unit = {
+    monitor(fiber)
 
-    fibers.offer(fiber)
+    currentBatch.offer(fiber)
 
     if (needsReschedule) {
       needsReschedule = false
       // start executing the batch immediately after the currently running task suspends
       // this is safe b/c `needsReschedule` is set to `true` only upon yielding to the event loop
       queueMicrotask(executeBatchTaskJSFunction)
-      ()
     }
+
+    ()
   }
 
   def reportFailure(t: Throwable): Unit = reportFailure0(t)
@@ -119,23 +136,15 @@ private[effect] final class BatchingMacrotaskExecutor(
   def liveTraces(): Map[IOFiber[_], Trace] =
     fiberBag.iterator.filterNot(_.isDone).map(f => f -> f.captureTrace()).toMap
 
-  @inline private[this] def monitor(runnable: Runnable): Runnable =
+  @inline private[this] def monitor(fiber: Runnable): Unit =
     if (LinkingInfo.developmentMode)
-      if (fiberBag ne null)
-        runnable match {
-          case r: IOFiber[_] =>
-            fiberBag += r
-            () => {
-              // We have to remove r _before_ running it, b/c it may be re-enqueued while running
-              // b/c JS is single-threaded, nobody can observe the bag while the fiber is running anyway
-              fiberBag -= r
-              r.run()
-            }
-          case _ => runnable
-        }
-      else runnable
-    else
-      runnable
+      if ((fiberBag ne null) && fiber.isInstanceOf[IOFiber[_]])
+        fiberBag += fiber.asInstanceOf[IOFiber[_]]
+
+  @inline private[this] def unmonitor(fiber: Runnable): Unit =
+    if (LinkingInfo.developmentMode)
+      if ((fiberBag ne null) && fiber.isInstanceOf[IOFiber[_]])
+        fiberBag -= fiber.asInstanceOf[IOFiber[_]]
 
   private[this] val fiberBag =
     if (LinkingInfo.developmentMode)
