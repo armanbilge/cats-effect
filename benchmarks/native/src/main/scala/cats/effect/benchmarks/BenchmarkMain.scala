@@ -31,6 +31,9 @@ object BenchmarkMain extends IOApp {
         case "DeepBind.pure" => DeepBindBenchmark.pure
         case "DeepBind.delay" => DeepBindBenchmark.delay
         case "DeepBind.async" => DeepBindBenchmark.async
+        case "MapCalls.one" => MapCallsBenchmark.one
+        case "MapCalls.batch30" => MapCallsBenchmark.batch30
+        case "MapCalls.batch120" => MapCallsBenchmark.batch120
       }
 
       benchIO.void.combineN(n).as(ExitCode.Success)
