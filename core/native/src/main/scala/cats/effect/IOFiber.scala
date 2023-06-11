@@ -930,16 +930,19 @@ private final class IOFiber[A](
             runLoop(cur.ioa, nextCancelation, nextAutoCede)
           } else {
             val ec = cur.ec
-            stack = NativeStack.pushObjectCont(stack, currentCtx, EvalOnK)
+            stack = NativeStack.pushObject(stack, currentCtx)
             currentCtx = ec
-
-            resumeTag = AutoCedeR
-            resumeIO = cur.ioa
 
             if (isStackTracing) {
               val handle = monitor()
               stack = NativeStack.pushObject(stack, handle)
             }
+
+            stack = NativeStack.pushCont(stack, EvalOnK)
+
+            resumeTag = AutoCedeR
+            resumeIO = cur.ioa
+
             scheduleOnForeignEC(ec, this)
           }
 
