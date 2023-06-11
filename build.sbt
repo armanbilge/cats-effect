@@ -339,16 +339,19 @@ val nativeProjects: Seq[ProjectReference] =
     testkit.native,
     tests.native,
     std.native,
-    example.native)
+    example.native,
+    benchmarks.native)
 
 val undocumentedRefs =
   jsProjects ++ nativeProjects ++ Seq[ProjectReference](
-    benchmarks,
+    benchmarks.jvm,
+    benchmarks.native,
     stressTests,
     example.jvm,
     graalVMExample,
     tests.jvm,
-    tests.js)
+    tests.js,
+    tests.native)
 
 lazy val root = project
   .in(file("."))
@@ -373,7 +376,7 @@ lazy val rootJVM = project
     std.jvm,
     example.jvm,
     graalVMExample,
-    benchmarks,
+    benchmarks.jvm,
     stressTests)
   .enablePlugins(NoPublishPlugin)
 
@@ -988,15 +991,23 @@ lazy val graalVMExample = project
 /**
  * JMH benchmarks for IO and other things.
  */
-lazy val benchmarks = project
+lazy val benchmarks = crossProject(JVMPlatform, NativePlatform)
   .in(file("benchmarks"))
-  .dependsOn(core.jvm, std.jvm)
-  .settings(
-    name := "cats-effect-benchmarks",
+  .dependsOn(core)
+  .settings(name := "cats-effect-benchmarks")
+  .jvmSettings(
     javaOptions ++= Seq(
       "-Dcats.effect.tracing.mode=none",
-      "-Dcats.effect.tracing.exceptions.enhanced=false"))
-  .enablePlugins(NoPublishPlugin, JmhPlugin)
+      "-Dcats.effect.tracing.exceptions.enhanced=false")
+  )
+  .nativeSettings(
+    nativeConfig ~= {
+      import scala.scalanative.build._
+      _.withLTO(LTO.thin).withMode(Mode.releaseFast).withGC(GC.immix)
+    }
+  )
+  .enablePlugins(NoPublishPlugin)
+  .jvmEnablePlugins(JmhPlugin)
 
 lazy val stressTests = project
   .in(file("stress-tests"))
