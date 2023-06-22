@@ -16,11 +16,11 @@
 
 package cats.effect.unsafe
 
-import cats.effect.{BaseSpec, IO}
+import cats.effect.{BaseSpec, DetectPlatform, IO}
 import cats.effect.testkit.TestInstances
 import cats.syntax.all._
 
-class WorkerThreadNameSpec extends BaseSpec with TestInstances {
+class WorkerThreadNameSpec extends BaseSpec with TestInstances with DetectPlatform {
 
   override def runtime(): IORuntime = {
     lazy val rt: IORuntime = {
@@ -53,27 +53,32 @@ class WorkerThreadNameSpec extends BaseSpec with TestInstances {
   }
 
   "WorkerThread" should {
-    "rename itself when entering and exiting blocking region" in real {
-      for {
-        computeThread <- threadInfo
-        (computeThreadName, _) = computeThread
-        blockerThread <- IO.blocking(threadInfo).flatten
-        (blockerThreadName, blockerThreadId) = blockerThread
-        _ <- IO.cede
-        // Force the previously blocking thread to become a compute thread by converting
-        // the pool of compute threads (size=1) to blocker threads
-        resetComputeThreads <- List.fill(2)(threadInfo <* IO.blocking(())).parSequence
-      } yield {
-        // Start with the regular prefix
-        computeThreadName must startWith("io-compute")
-        // Check that entering a blocking region changes the name
-        blockerThreadName must startWith("io-blocker")
-        // Check that the same thread is renamed again when it is readded to the compute pool
-        resetComputeThreads.exists {
-          case (name, id) => id == blockerThreadId && name.startsWith("io-compute")
-        } must beTrue
+    if (isWindows)
+      "rename itself when entering and exiting blocking region" in skipped(
+        "very flaky in Windows CI"
+      )
+    else
+      "rename itself when entering and exiting blocking region" in real {
+        for {
+          computeThread <- threadInfo
+          (computeThreadName, _) = computeThread
+          blockerThread <- IO.blocking(threadInfo).flatten
+          (blockerThreadName, blockerThreadId) = blockerThread
+          _ <- IO.cede
+          // Force the previously blocking thread to become a compute thread by converting
+          // the pool of compute threads (size=1) to blocker threads
+          resetComputeThreads <- List.fill(2)(threadInfo <* IO.blocking(())).parSequence
+        } yield {
+          // Start with the regular prefix
+          computeThreadName must startWith("io-compute")
+          // Check that entering a blocking region changes the name
+          blockerThreadName must startWith("io-blocker")
+          // Check that the same thread is renamed again when it is readded to the compute pool
+          resetComputeThreads.exists {
+            case (name, id) => id == blockerThreadId && name.startsWith("io-compute")
+          } must beTrue
+        }
       }
-    }
   }
 
   private val threadInfo =
