@@ -251,11 +251,11 @@ class DispatcherSpec extends BaseSpec with DetectPlatform {
     }
 
     "raise an error on leaked runner" in real {
-      dispatcher.use(IO.pure(_)) flatMap { runner =>
+      dispatcher.use(IO.pure(_)).flatMap { runner =>
         IO {
           runner.unsafeRunAndForget(IO(ko)) must throwAn[IllegalStateException]
         }
-      }
+      }.replicateA_(10000).as(ok)
     }
 
     "report exception if raised during unsafeRunAndForget" in real {
