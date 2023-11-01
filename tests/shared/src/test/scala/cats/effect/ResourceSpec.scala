@@ -267,6 +267,28 @@ class ResourceSpec extends BaseSpec with ScalaCheck with Discipline {
         .mustEqual(3)
     }
 
+    "attempt releases all resources on failure" in ticked { implicit ticker =>
+      val go = IO.ref(0).flatMap { ref =>
+        val resource = Resource.make(ref.update(_ + 1))(_ => ref.update(_ + 1))
+        val error = Resource.raiseError[IO, Unit, Throwable](new Exception)
+
+        val attempt = (resource *> error).attempt
+
+        attempt.use { r =>
+          ref.get.flatMap { i =>
+            IO {
+              // acquiring the resource as a whole failed, so it should be released in entirety
+              r should beLeft
+              i should beEqualTo(2)
+              ()
+            }
+          }
+        }
+      }
+
+      go must completeAs(())
+    }
+
     "mapK should preserve ExitCode-specific behaviour" in ticked { implicit ticker =>
       def sideEffectyResource: (AtomicBoolean, Resource[IO, Unit]) = {
         val cleanExit = new java.util.concurrent.atomic.AtomicBoolean(false)
