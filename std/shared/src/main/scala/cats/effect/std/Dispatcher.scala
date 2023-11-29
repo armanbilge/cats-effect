@@ -91,11 +91,6 @@ object Dispatcher {
 
   private[this] val Cpus: Int = Runtime.getRuntime().availableProcessors()
 
-  private[this] val Noop: () => Unit = () => ()
-  private[this] val Open: () => Unit = () => ()
-
-  private[this] val Completed: Either[Throwable, Unit] = Right(())
-
   @deprecated(
     message =
       "use '.parallel' or '.sequential' instead; the former corresponds to the current semantics of '.apply'",
@@ -154,7 +149,7 @@ object Dispatcher {
    *   - false - cancel the active fibers
    */
   def parallel[F[_]: Async](await: Boolean): Resource[F, Dispatcher[F]] =
-    apply(Mode.Parallel, await)
+    ???
 
   /**
    * Create a [[Dispatcher]] that can be used within a resource scope. Once the resource scope
@@ -190,237 +185,169 @@ object Dispatcher {
    *   - false - cancel the active fiber
    */
   def sequential[F[_]: Async](await: Boolean): Resource[F, Dispatcher[F]] =
-    apply(Mode.Sequential, await)
+    Resource
+      .eval(F.delay(new Impl(cancelDispatcher)))
+      .evalTap { impl => impl.nextRegistration.flatten.whileM(F.delay(impl.get() ne null)) }
+      .background
+      .use_
+      .whileM(F.delay(impl.get() ne null))
 
-  private[this] def apply[F[_]](mode: Mode, await: Boolean)(
-      implicit F: Async[F]): Resource[F, Dispatcher[F]] = {
-    final case class Registration(action: F[Unit], prepareCancel: F[Unit] => Unit)
-        extends AtomicBoolean(true)
+  private def parallelImpl[F[_]](outer: Dispatcher[F])(implicit F: Async[F]) = ???
 
-    sealed trait CancelState
-    case object CancelInit extends CancelState
-    final case class CanceledNoToken(promise: Promise[Unit]) extends CancelState
-    final case class CancelToken(cancelToken: () => Future[Unit]) extends CancelState
+  private val CanceledSentinel = new AnyRef
 
-    val (workers, makeFork) =
-      mode match {
-        case Mode.Parallel =>
-          (Cpus, Supervisor[F](await).map(s => s.supervise(_: F[Unit]).map(_.cancel)))
+  private final class Registration[F[_]](val action: F[Unit])
+      extends AtomicReference[AnyRef](null)
 
-        case Mode.Sequential =>
-          (
-            1,
-            Resource
-              .pure[F, F[Unit] => F[F[Unit]]]((_: F[Unit]).as(F.unit).handleError(_ => F.unit)))
-      }
+  // private final case class State[F[_]](
+  //     out: List[Registration[F]],
+  //     in: List[Registration[F]],
+  //     open: Boolean,
+  //     latch: Either[Throwable, Unit] => Unit
+  // ) {
+  //   if (out.isEmpty) assert(in.isEmpty)
 
-    for {
-      fork <- makeFork
+  //   def this() = this(Nil, Nil, false, null)
 
-      latches <- Resource.eval(F delay {
-        val latches = new Array[AtomicReference[() => Unit]](workers)
-        var i = 0
-        while (i < workers) {
-          latches(i) = new AtomicReference(Noop)
-          i += 1
-        }
-        latches
-      })
-      states <- Resource.eval(F delay {
-        val states = Array.ofDim[AtomicReference[List[Registration]]](workers, workers)
-        var i = 0
-        while (i < workers) {
-          var j = 0
-          while (j < workers) {
-            states(i)(j) = new AtomicReference(Nil)
-            j += 1
-          }
-          i += 1
-        }
-        states
-      })
-      ec <- Resource.eval(F.executionContext)
+  //   def head: Registration[F] = out.head
+  //   def tail: State[F] = {
+  //     val outTail = out.tail
+  //     if (outTail.isEmpty)
+  //       copy(out = in.reverse, in = Nil)
+  //     else
+  //       copy(out = outTail)
+  //   }
 
-      // supervisor for the main loop, which needs to always restart unless the Supervisor itself is canceled
-      // critically, inner actions can be canceled without impacting the loop itself
-      supervisor <- Supervisor[F](await, Some((_: Outcome[F, Throwable, _]) => true))
+  //   def appended(r: Registration[F]): State[F]
+  //     if (out.isEmpty)
+  //       copy(out = )
 
-      _ <- {
-        def step(
-            state: Array[AtomicReference[List[Registration]]],
-            await: F[Unit],
-            doneR: AtomicBoolean): F[Unit] =
-          for {
-            done <- F.delay(doneR.get())
-            regs <- F delay {
-              val buffer = mutable.ListBuffer.empty[Registration]
-              var i = 0
-              while (i < workers) {
-                val st = state(i)
-                if (st.get() ne null) {
-                  val list = if (done) st.getAndSet(null) else st.getAndSet(Nil)
-                  if ((list ne null) && (list ne Nil)) {
-                    buffer ++= list.reverse // FIFO order here is a form of fairness
-                  }
-                }
-                i += 1
-              }
-              buffer.toList
-            }
+  //   def closed: State[F] = copy(open = false)
+  // }
 
-            _ <-
-              if (regs.isEmpty) {
-                await
-              } else {
-                regs traverse_ {
-                  case r @ Registration(action, prepareCancel) =>
-                    val supervise: F[Unit] =
-                      fork(action).flatMap(cancel => F.delay(prepareCancel(cancel)))
+  // private final class Sequential[F[_]](implicit F: Async[F]) extends AtomicReference[] {
+  //       def nextRegistration: F[Registration[F]] = F.asyncCheckAttempt { cb =>
+  //     def go: F[Either[Option[IO[Unit]], Registration[F]]] =
+  //       F.delay(get()).flatMap {
+  //         case null => F.canceled
+  //         case registrations: Queue[Registration[F] @unchecked] =>
+  //           if (registrations.isEmpty)
+  //             F.delay(compareAndSet(registrations, cb))
+  //               .ifM(
+  //                 F.pure(Left(Some(F.delay(compareAndSet(cb, Queue.empty[Registration[F]]))))),
+  //                 go
+  //               )
+  //           else
+  //             F.delay(compareAndSet(registrations, registrations.tail))
+  //               .ifM(F.delay(Right(registrations.head)), go)
+  //         case _ => F.raiseError(new AssertionError)
+  //       }
 
-                    // Check for task cancelation before executing.
-                    F.delay(r.get()).ifM(supervise, F.delay(prepareCancel(F.unit)))
-                }
-              }
-          } yield ()
+  //     go
+  //   }
+  // }
 
-        def dispatcher(
-            doneR: AtomicBoolean,
-            latch: AtomicReference[() => Unit],
-            state: Array[AtomicReference[List[Registration]]]): F[Unit] = {
+  private final class Parallel[F[_]](await: Boolean, supervisor: Supervisor[F])(
+      implicit F: Async[F]
+  ) extends AtomicReference[AnyRef](Nil)
+      with Dispatcher[F] {
 
-          val await =
-            F.async_[Unit] { cb =>
-              if (!latch.compareAndSet(Noop, () => cb(Completed))) {
-                // state was changed between when we last set the latch and now; complete the callback immediately
-                cb(Completed)
-              }
-            }
+    def unsafeToFutureCancelable[A](fa: F[A]) = {
 
-          F.delay(latch.set(Noop)) *> // reset latch
-            // if we're marked as done, yield immediately to give other fibers a chance to shut us down
-            // we might loop on this a few times since we're marked as done before the supervisor is canceled
-            F.delay(doneR.get()).ifM(F.cede, step(state, await, doneR))
-        }
+      val promise = Promise[A]()
+      val registration = new Registration(
+        fa.redeemWith[Unit](
+          ex => F.delay(promise.failure(ex)),
+          a => F.delay(promise.success(a))
+        )
+      )
 
-        0.until(workers).toList traverse_ { n =>
-          Resource.eval(F.delay(new AtomicBoolean(false))) flatMap { doneR =>
-            val latch = latches(n)
-            val worker = dispatcher(doneR, latch, states(n))
-            val release = F.delay(latch.getAndSet(Open)())
-            Resource.make(supervisor.supervise(worker)) { _ =>
-              F.delay(doneR.set(true)) *> step(states(n), F.unit, doneR) *> release
-            }
-          }
+      enqueue(registration)
+
+      val cancel = { () =>
+        val action = registration.getAndSet(CanceledSentinel)
+        if (action ne null) {
+          unsafeToFuture(action.asInstanceOf[F[Unit]])
+        } else {
+          Future.successful(())
         }
       }
-    } yield {
-      new Dispatcher[F] {
-        override def unsafeRunAndForget[A](fa: F[A]): Unit = {
-          unsafeToFutureCancelable(fa)
-            ._1
-            .onComplete {
-              case Failure(ex) => ec.reportFailure(ex)
-              case _ => ()
-            }(parasiticEC)
-        }
 
-        def unsafeToFutureCancelable[E](fe: F[E]): (Future[E], () => Future[Unit]) = {
-          val promise = Promise[E]()
+      (promise.future, cancel)
+    }
 
-          val action = fe
-            .flatMap(e => F.delay(promise.success(e)))
-            .handleErrorWith(t => F.delay(promise.failure(t)))
-            .void
+    @tailrec
+    private[this] def enqueue(registration: Registration[F]): Unit =
+      get() match {
+        case null => throw new IllegalStateException("dispatcher already shutdown")
+        case registrations: List[Registration[F] @unchecked] =>
+          if (!compareAndSet(registrations, registration :: registrations))
+            enqueue(registration)
+        case _latch =>
+          val latch = _latch.asInstanceOf[Either[Throwable, List[Registration[F]]] => Unit]
+          if (compareAndSet(latch, Nil))
+            latch(registration :: Nil)
+          else
+            enqueue(registration)
+      }
 
-          val cancelState = new AtomicReference[CancelState](CancelInit)
-
-          def registerCancel(token: F[Unit]): Unit = {
-            val cancelToken = () => unsafeToFuture(token)
-
-            @tailrec
-            def loop(): Unit = {
-              val state = cancelState.get()
-              state match {
-                case CancelInit =>
-                  if (!cancelState.compareAndSet(state, CancelToken(cancelToken))) {
-                    loop()
-                  }
-                case CanceledNoToken(promise) =>
-                  if (!cancelState.compareAndSet(state, CancelToken(cancelToken))) {
-                    loop()
-                  } else {
-                    cancelToken().onComplete {
-                      case Success(_) => promise.success(())
-                      case Failure(ex) => promise.failure(ex)
-                    }(ec)
-                  }
-                case _ => ()
-              }
-            }
-
-            loop()
+    def runWorker: F[Unit] = F.uncancelable { poll =>
+      F.onCancel(
+        poll(nextRegistrations).flatMap { registrations =>
+          val runActions = registrations.foldMap(runAction(_))
+          if (await) // make sure that everything is submitted
+            runActions
+          else // ok to be canceled while submitting
+            poll(runActions)
+        },
+        if (await) // make sure that everything is submitted
+          F.delay(getAndSet(null)).flatMap {
+            case registrations: List[Registration[F] @unchecked] =>
+              registrations.foldMap(runAction(_))
           }
+        else
+          F.unit
+      )
+    }
 
-          @tailrec
-          def enqueue(state: AtomicReference[List[Registration]], reg: Registration): Unit = {
-            val curr = state.get()
-            if (curr eq null) {
-              throw new IllegalStateException("dispatcher already shutdown")
-            } else {
-              val next = reg :: curr
-              if (!state.compareAndSet(curr, next)) enqueue(state, reg)
+    private[this] def runAction(registration: Registration[F]): F[Unit] = F.uncancelable { _ =>
+      F.delay(registration.get()).flatMap { status =>
+        if (status eq null) // not canceled
+          supervisor.supervise(registration.action).flatMap { fiber =>
+            // double-check and cancel if necessary
+            F.delay(registration.compareAndSet(null, fiber.cancel)).flatMap { canceled =>
+              if (canceled)
+                supervisor.supervise(fiber.cancel).void // don't block the worker
+              else
+                F.unit
             }
           }
-
-          val (state, lt) = if (workers > 1) {
-            val rand = ThreadLocalRandom.current()
-            val dispatcher = rand.nextInt(workers)
-            val inner = rand.nextInt(workers)
-
-            (states(dispatcher)(inner), latches(dispatcher))
-          } else {
-            (states(0)(0), latches(0))
-          }
-
-          val reg = Registration(action, registerCancel _)
-          enqueue(state, reg)
-
-          if (lt.get() ne Open) {
-            val f = lt.getAndSet(Open)
-            f()
-          }
-
-          val cancel = { () =>
-            reg.lazySet(false)
-
-            @tailrec
-            def loop(): Future[Unit] = {
-              val state = cancelState.get()
-              state match {
-                case CancelInit =>
-                  val promise = Promise[Unit]()
-                  if (!cancelState.compareAndSet(state, CanceledNoToken(promise))) {
-                    loop()
-                  } else {
-                    promise.future
-                  }
-                case CanceledNoToken(promise) =>
-                  promise.future
-                case CancelToken(cancelToken) =>
-                  cancelToken()
-              }
-            }
-
-            loop()
-          }
-
-          (promise.future, cancel)
-        }
+        else
+          F.unit // canceled, do nothing
       }
     }
+
+    private[this] def nextRegistrations: F[List[Registration[F]]] =
+      F.asyncCheckAttempt(cb => F.delay(getBatchOrInstallCallback(cb)))
+
+    @tailrec
+    private[this] def getBatchOrInstallCallback(cb: Either[Throwable, List[Registration[F]]])
+        : Either[Option[F[Unit]], List[Registration[F]]] = {
+      val registrations = get().asInstanceOf[List[Registration[F]]]
+      if (registrations.isEmpty) {
+        if (compareAndSet(registrations, cb))
+          return Left(Some(F.delay { compareAndSet(cb, null); () }))
+      } else {
+        if (compareAndSet(registrations, Nil))
+          return Right(registrations.reverse)
+      }
+      getBatchOrInstallCallback(cb)
+    }
+
   }
 
-  private sealed trait Mode extends Product with Serializable
+  private[this] def apply[F[_]](mode: Mode, await: Boolean)(
+      implicit F: Async[F]): Resource[F, Dispatcher[F]] = ???
 
   private object Mode {
     case object Parallel extends Mode
