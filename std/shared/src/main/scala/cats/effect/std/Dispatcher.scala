@@ -300,13 +300,14 @@ object Dispatcher {
           else // ok to be canceled while submitting
             poll(runActions)
         },
-        if (await) // make sure that everything is submitted
+        
           F.delay(getAndSet(null)).flatMap {
             case registrations: List[Registration[F] @unchecked] =>
-              registrations.foldMap(runAction(_))
+              if (await) // make sure that everything is submitted
+                registrations.foldMap(runAction(_))
+              else
+                F.delay(registrations.foreach(_.set(CanceledSentinel)))
           }
-        else
-          F.unit
       )
     }
 
