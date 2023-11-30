@@ -16,6 +16,8 @@
 
 package cats.effect.std
 
+import cats.~>
+import cats.arrow.FunctionK
 import cats.effect.kernel.{Async, Outcome, Resource}
 import cats.effect.std.Dispatcher.parasiticEC
 import cats.syntax.all._
@@ -242,20 +244,32 @@ object Dispatcher {
 
     def runWorker: F[Unit] =
       F.onCancel(
-        ???,
+        workerLoop,
         ???
       )
 
-    private[this] def workerLoop: F[Unit] = F.uncancelable { poll =>
-      poll(nextRegistration).flatMap { registration =>
-        F.delay(registration.get().asInstanceOf[Promise[Unit]]).flatMap {
-          case null => // not canceled
-            poll(registration.action)
-          case canceledPromise => // acknowledge cancelation
-            F.delay(canceledPromise.success(()))
-        }
+    private[this] def workerLoop: F[Unit] =
+      F.uncancelable(poll => poll(nextRegistration).flatMap(runAction(_, poll)))
+        .foreverM
+        .background
+        .useEval
+        .foreverM
+
+    private[this] def workerLoop(ref: AtomicReference[Queue[Registration[F]]]): F[Unit] =
+      F.delay(ref.getAndUpdate(_.tail).head)
+        .flatMap(runAction(_, FunctionK.id))
+        .whileM_(F.delay(ref.get().nonEmpty))
+        .background
+        .useEval
+        .whileM_(F.delay(ref.get().nonEmpty))
+
+    private[this] def runAction(registration: Registration[F], poll: F ~> F): F[Unit] =
+      F.delay(registration.get().asInstanceOf[Promise[Unit]]).flatMap {
+        case null => // not canceled
+          poll(registration.action)
+        case canceledPromise => // acknowledge cancelation
+          F.delay(canceledPromise.success(()))
       }
-    }.foreverM
 
     private[this] def nextRegistration: F[Registration[F]] =
       F.asyncCheckAttempt(cb => F.delay(getNextOrInstallCallback(cb)))
