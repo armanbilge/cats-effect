@@ -25,13 +25,13 @@ import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, ThreadLocalR
 /**
  * To do comparative benchmarks between versions:
  *
- * benchmarks/run-benchmark WorkStealingBenchmark
+ * benchmarks/run-benchmark ScalQueueBenchmark
  *
  * This will generate results in `benchmarks/results`.
  *
  * Or to run the benchmark from within sbt:
  *
- * Jmh / run -i 10 -wi 10 -f 2 -t 1 cats.effect.benchmarks.WorkStealingBenchmark
+ * Jmh / run -i 10 -wi 10 -f 2 -t 1 cats.effect.benchmarks.ScalQueueBenchmark
  *
  * Which means "10 iterations", "10 warm-up iterations", "2 forks", "1 thread". Please note that
  * benchmarks should be usually executed at least in 10 iterations (as a rule of thumb), but
@@ -93,7 +93,7 @@ class ScalQueueBenchmark {
     latch.await()
   }
 
-  @Benchmark
+  // @Benchmark
   def clqConcurrentEnqueueDequeue(): Unit = {
     val q = new ConcurrentLinkedQueue[AnyRef]()
     val latch = new CountDownLatch(threads)

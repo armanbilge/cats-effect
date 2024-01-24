@@ -16,13 +16,15 @@
 
 package cats.effect.unsafe
 
-import java.util.concurrent.{ConcurrentLinkedQueue, ThreadLocalRandom}
+import cats.effect.std.UnsafeUnbounded
+
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * A striped queue implementation inspired by the [[https://scal.cs.uni-salzburg.at/dq/ Scal]]
- * project. The whole queue consists of several [[java.util.concurrent.ConcurrentLinkedQueue]]
- * instances (the number of queues is a power of 2 for optimization purposes) which are load
- * balanced between using random index generation.
+ * project. The whole queue consists of several [[cats.effect.std.UnsafeUnbounded]] instances
+ * (the number of queues is a power of 2 for optimization purposes) which are load balanced
+ * between using random index generation.
  *
  * The Scal queue does not guarantee any ordering of dequeued elements and is more akin to the
  * data structure known as '''bag'''. The naming is kept to honor the original development
@@ -55,15 +57,17 @@ private[effect] final class ScalQueue[A <: AnyRef](threadCount: Int) {
    */
   private[this] val numQueues: Int = mask + 1
 
+  private[this] val FailureSignal = cats.effect.std.FailureSignal // prefetch
+
   /**
    * The concurrent queues backing this Scal queue.
    */
-  private[this] val queues: Array[ConcurrentLinkedQueue[A]] = {
+  private[this] val queues: Array[UnsafeUnbounded[A]] = {
     val nq = numQueues
-    val queues = new Array[ConcurrentLinkedQueue[A]](nq)
+    val queues = new Array[UnsafeUnbounded[A]](nq)
     var i = 0
     while (i < nq) {
-      queues(i) = new ConcurrentLinkedQueue()
+      queues(i) = new UnsafeUnbounded()
       i += 1
     }
     queues
@@ -79,7 +83,7 @@ private[effect] final class ScalQueue[A <: AnyRef](threadCount: Int) {
    */
   def offer(a: A, random: ThreadLocalRandom): Unit = {
     val idx = random.nextInt(numQueues)
-    queues(idx).offer(a)
+    queues(idx).put(a)
     ()
   }
 
@@ -111,7 +115,7 @@ private[effect] final class ScalQueue[A <: AnyRef](threadCount: Int) {
     while (i < len) {
       val fiber = as(i)
       val idx = random.nextInt(nq)
-      queues(idx).offer(fiber)
+      queues(idx).put(fiber)
       i += 1
     }
   }
@@ -133,38 +137,13 @@ private[effect] final class ScalQueue[A <: AnyRef](threadCount: Int) {
 
     while ((a eq null) && i < nq) {
       val idx = (from + i) & mask
-      a = queues(idx).poll()
+      a =
+        try queues(idx).take()
+        catch { case FailureSignal => null.asInstanceOf[A] }
       i += 1
     }
 
     a
-  }
-
-  /**
-   * Removes an element from this queue.
-   *
-   * @note
-   *   The implementation delegates to the
-   *   [[java.util.concurrent.ConcurrentLinkedQueue#remove remove]] method.
-   *
-   * @note
-   *   This method runs in linear time relative to the size of the queue, which is not ideal and
-   *   generally should not be used. However, this functionality is necessary for the blocking
-   *   mechanism of the [[WorkStealingThreadPool]]. The runtime complexity of this method is
-   *   acceptable for that purpose because threads are limited resources.
-   *
-   * @param a
-   *   the element to be removed
-   */
-  def remove(a: A): Unit = {
-    val nq = numQueues
-    var i = 0
-    var done = false
-
-    while (!done && i < nq) {
-      done = queues(i).remove(a)
-      i += 1
-    }
   }
 
   /**
@@ -174,7 +153,7 @@ private[effect] final class ScalQueue[A <: AnyRef](threadCount: Int) {
    *   a set of the currently enqueued elements
    */
   def snapshot(): Set[AnyRef] =
-    queues.flatMap(_.toArray).toSet
+    queues.flatMap(_.toArrayBuffer().toArray[AnyRef]).toSet
 
   /**
    * Checks if this Scal queue is empty.

@@ -19,8 +19,9 @@ package cats.effect.std
 import scala.annotation.tailrec
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.mutable
 
-private final class UnsafeUnbounded[A] {
+private[effect] final class UnsafeUnbounded[A] {
   private[this] val first = new AtomicReference[Cell]
   private[this] val last = new AtomicReference[Cell]
   private[this] val FailureSignal = cats.effect.std.FailureSignal // prefetch
@@ -85,6 +86,13 @@ private final class UnsafeUnbounded[A] {
     }
   }
 
+  def isEmpty(): Boolean = (first.get() eq null) && (last.get() eq null)
+
+  def clear(): Unit = {
+    first.set(null)
+    last.set(null)
+  }
+
   def debug(): String = {
     val f = first.get()
 
@@ -93,6 +101,16 @@ private final class UnsafeUnbounded[A] {
     } else {
       f.debug()
     }
+  }
+
+  def toArrayBuffer(): mutable.ArrayBuffer[A] = {
+    val buffer = mutable.ArrayBuffer[A]()
+    var next = first.get()
+    while (next ne null) {
+      buffer += next.data()
+      next = next.get()
+    }
+    buffer
   }
 
   private final class Cell(private[this] final var _data: A)

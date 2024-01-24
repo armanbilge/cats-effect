@@ -16,4 +16,6 @@
 
 package cats.effect.std
 
-private object FailureSignal extends RuntimeException with scala.util.control.NoStackTrace
+private[effect] object FailureSignal
+    extends RuntimeException
+    with scala.util.control.NoStackTrace
