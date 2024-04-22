@@ -22,11 +22,15 @@ import cats.effect.unsafe._
 
 import scala.annotation.{switch, tailrec}
 import scala.concurrent.ExecutionContext
+import scala.concurrent.Future
+import scala.concurrent.CanAwait
 import scala.concurrent.duration._
+import scala.util.{Try, Success, Failure}
 import scala.util.control.NonFatal
 
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CancellationException
 
 /*
  * Rationale on memory barrier exploitation in this class...
@@ -72,7 +76,8 @@ private final class IOFiber[A](
     rt: IORuntime
 ) extends IOFiberPlatform[A]
     with FiberIO[A]
-    with Runnable {
+    with Runnable
+    with Future[A] {
   /* true when fiber blocking (ensures that we only unblock *once*) */
   suspended: AtomicBoolean =>
 
@@ -120,6 +125,39 @@ private final class IOFiber[A](
       case 8 => () // DoneR
     }
   }
+
+  /* Future implementation */
+
+  def onComplete[U](f: Try[A] => U)(implicit ec: ExecutionContext): Unit = {
+    callbacks.push { oc =>
+      val t = ocToTry(oc)
+      ec.execute { () => f(t); () }
+    }
+    ()
+  }
+
+  def isCompleted: Boolean = outcome ne null
+
+  def value: Option[Try[A]] = {
+    val oc = outcome
+    if (oc ne null)
+      Some(ocToTry(oc))
+    else
+      None
+  }
+
+  private[this] def ocToTry(oc: OutcomeIO[A]): Try[A] =
+    oc.fold(
+      Failure(new CancellationException("The fiber was canceled")),
+      Failure(_),
+      io => Success(io.asInstanceOf[Pure[A]].value)
+    )
+
+  /* Awaitable implementation */
+
+  def ready(atMost: Duration)(implicit permit: CanAwait): this.type = ???
+
+  def result(atMost: Duration)(implicit permit: CanAwait): A = ???
 
   /* backing fields for `cancel` and `join` */
 
