@@ -19,6 +19,6 @@ package unsafe
 
 class SelectorSystemSpec extends PollingSystemSpec {
 
-  def system = IO(SelectorSystem())
+  def system = IO(FileDescriptorPoller)
 
 }

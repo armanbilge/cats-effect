@@ -62,6 +62,9 @@ object EpollSystem extends PollingSystem {
   def poll(poller: Poller, nanos: Long, reportFailure: Throwable => Unit): Boolean =
     poller.poll(nanos)
 
+  def steal(poller: Poller, reportFailure: Throwable => Unit): Boolean =
+    poller.steal()
+
   def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
   def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
@@ -218,6 +221,8 @@ object EpollSystem extends PollingSystem {
 
       polled
     }
+
+    private[EpollSystem] def steal(): Boolean = poll(0)
 
     private[EpollSystem] def needsPoll(): Boolean = !handles.isEmpty()
 

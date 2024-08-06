@@ -17,8 +17,20 @@
 package cats.effect
 package unsafe
 
-class SelectorSystemSpec extends PollingSystemSpec {
+trait PollingSystemSpec extends BaseSpec {
 
-  def system = IO(SelectorSystem())
+  def system: IO[PollingSystem]
+
+  "Polling System" should {
+    "not blocker stealer when owner is polling" in real {
+      system.flatMap { s =>
+        IO(s.makePoller()).flatMap { p =>
+          IO.interruptible(s.poll(p, -1, _ => ())).background.surround {
+            IO(s.steal(p, _ => ()) should beFalse)
+          }
+        }
+      }
+    }
+  }
 
 }
