@@ -108,8 +108,7 @@ object TagBenchmark {
     IO.Blocking(null, null, null),
     IO.Local(null),
     IO.IOTrace,
-    IO.ReadRT,
-    IO.EndFiber
+    IO.ReadRT
   )
 
 }
@@ -162,6 +161,45 @@ class TagBenchmark {
     while (i < TagBenchmark.values.length) {
       val result: String =
         (TagBenchmark.ioClassValue.get(TagBenchmark.values(i).getClass): @switch) match {
+          case 0 => "Pure"
+          case 1 => "Error"
+          case 2 => "Delay"
+          case 3 => "ReadTime"
+          case 4 => "Monotonic"
+          case 5 => "ReadEC"
+          case 6 => "Map"
+          case 7 => "FlatMap"
+          case 8 => "Attempt"
+          case 9 => "HandleErrorWith"
+          case 10 => "Canceled"
+          case 11 => "OnCancel"
+          case 12 => "Uncancelable"
+          case 13 => "UnmaskRunLoop"
+          case 14 => "IOCont"
+          case 15 => "Get"
+          case 16 => "Cede"
+          case 17 => "Start"
+          case 18 => "RacePair"
+          case 19 => "Sleep"
+          case 20 => "EvalOn"
+          case 21 => "Blocking"
+          case 22 => "Local"
+          case 23 => "IOTrace"
+          case 24 => "ReadRT"
+          case -1 => "EndFiber"
+        }
+      bk.consume(result)
+      i += 1
+    }
+  }
+
+  @Benchmark
+  def classByteMap(bk: Blackhole): Unit = {
+    val tags = IO.tags
+    var i = 0
+    while (i < TagBenchmark.values.length) {
+      val result: String =
+        (tags(TagBenchmark.values(i).getClass): @switch) match {
           case 0 => "Pure"
           case 1 => "Error"
           case 2 => "Delay"

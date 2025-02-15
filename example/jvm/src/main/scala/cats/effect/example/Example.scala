@@ -19,6 +19,9 @@ package example
 
 object Example extends IOApp.Simple {
 
-  def run: IO[Unit] =
-    (IO(println("started")) >> IO.never).onCancel(IO(println("canceled")))
+  def run: IO[Unit] = IO {
+    println(classOf[IO.Pure[_]].hashCode)
+    println(classOf[IO.Error].hashCode)
+    println(classOf[IO.Delay[_]].hashCode)
+  }
 }

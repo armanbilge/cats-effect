@@ -249,12 +249,15 @@ private final class IOFiber[A](
         _cur0
       }
 
+      // prefetch
+      val tags = IO.tags
+
       // System.out.println(s"looping on $cur0")
       /*
        * The cases have to use continuous constants to generate a `tableswitch`.
        * Do not name or reorder them.
        */
-      (cur0.tag: @switch) match {
+      (tags(cur0.getClass()): @switch) match {
         case 0 =>
           val cur = cur0.asInstanceOf[Pure[Any]]
           runLoop(succeeded(cur.value, 0), nextCancelation, nextAutoCede)
@@ -332,7 +335,7 @@ private final class IOFiber[A](
             if (error == null) succeeded(result, 0) else failed(error, 0)
           }
 
-          (ioe.tag: @switch) match {
+          (tags(ioe.getClass()): @switch) match {
             case 0 =>
               val pure = ioe.asInstanceOf[Pure[Any]]
               runLoop(next(pure.value), nextCancelation - 1, nextAutoCede)
@@ -403,7 +406,7 @@ private final class IOFiber[A](
                 onFatalFailure(t)
             }
 
-          (ioe.tag: @switch) match {
+          (tags(ioe.getClass()): @switch) match {
             case 0 =>
               val pure = ioe.asInstanceOf[Pure[Any]]
               runLoop(next(pure.value), nextCancelation - 1, nextAutoCede)
@@ -458,7 +461,7 @@ private final class IOFiber[A](
 
           val ioa = cur.ioa
 
-          (ioa.tag: @switch) match {
+          (tags(ioa.getClass()): @switch) match {
             case 0 =>
               val pure = ioa.asInstanceOf[Pure[Any]]
               runLoop(succeeded(Right(pure.value), 0), nextCancelation - 1, nextAutoCede)

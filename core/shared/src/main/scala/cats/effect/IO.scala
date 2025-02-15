@@ -50,7 +50,7 @@ import cats.effect.std.{
   UUIDGen
 }
 import cats.effect.tracing.{Tracing, TracingEvent}
-import cats.effect.unsafe.IORuntime
+import cats.effect.unsafe.{IORuntime, ClassByteMap}
 import cats.syntax._
 import cats.syntax.all._
 
@@ -2200,6 +2200,37 @@ object IO extends IOCompanionPlatform with IOLowPriorityImplicits with TuplePara
     SecureRandom.unsafeJavaSecuritySecureRandom[IO]()
 
   // implementations
+
+  @static private[effect] val tags = {
+    val tags = new ClassByteMap
+    tags(classOf[Pure[_]]) = 0
+    tags(classOf[Error]) = 1
+    tags(classOf[Delay[_]]) = 2
+    tags(classOf[RealTime.type]) = 3
+    tags(classOf[Monotonic.type]) = 4
+    tags(classOf[ReadEC.type]) = 5
+    tags(classOf[Map[_, _]]) = 6
+    tags(classOf[FlatMap[_, _]]) = 7
+    tags(classOf[Attempt[_]]) = 8
+    tags(classOf[HandleErrorWith[_]]) = 9
+    tags(classOf[HandleErrorWith[_]]) = 9
+    tags(classOf[Canceled.type]) = 10
+    tags(classOf[OnCancel[_]]) = 11
+    tags(classOf[Uncancelable[_]]) = 12
+    tags(classOf[Uncancelable.UnmaskRunLoop[_]]) = 13
+    tags(classOf[IOCont[_, _]]) = 14
+    tags(classOf[IOCont.Get[_]]) = 15
+    tags(classOf[Cede.type]) = 16
+    tags(classOf[Start[_]]) = 17
+    tags(classOf[RacePair[_, _]]) = 18
+    tags(classOf[Sleep]) = 19
+    tags(classOf[EvalOn[_]]) = 20
+    tags(classOf[Blocking[_]]) = 21
+    tags(classOf[Local[_]]) = 22
+    tags(classOf[IOTrace.type]) = 23
+    tags(classOf[ReadRT.type]) = 24
+    tags
+  }
 
   private[effect] final case class Pure[+A](value: A) extends IO[A] {
     def tag = 0
