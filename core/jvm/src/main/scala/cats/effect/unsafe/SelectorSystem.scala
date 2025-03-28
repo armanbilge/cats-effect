@@ -22,6 +22,7 @@ import cats.effect.unsafe.metrics.PollerMetrics
 import java.nio.channels.{SelectableChannel, SelectionKey}
 import java.nio.channels.spi.{AbstractSelector, SelectorProvider}
 import java.util.Iterator
+import java.util.concurrent.locks.LockSupport
 
 import SelectorSystem._
 
@@ -39,7 +40,7 @@ final class SelectorSystem private (provider: SelectorProvider) extends PollingS
   def closePoller(poller: Poller): Unit =
     poller.selector.close()
 
-  def poll(poller: Poller, nanos: Long): PollResult = {
+  def poll(poller: Poller, nanos: Long): PollResult = if (needsPoll(poller)) {
     val millis = if (nanos >= 0) nanos / 1000000 else -1
     val selector = poller.selector
 
@@ -52,6 +53,14 @@ final class SelectorSystem private (provider: SelectorProvider) extends PollingS
       PollResult.Complete
     else
       PollResult.Interrupted
+  } else {
+    if (nanos < 0)
+      LockSupport.park()
+    else if (nanos > 0)
+      LockSupport.parkNanos(nanos)
+    else
+      ()
+    PollResult.Interrupted
   }
 
   def processReadyEvents(poller: Poller): Boolean = {
@@ -105,10 +114,8 @@ final class SelectorSystem private (provider: SelectorProvider) extends PollingS
   def needsPoll(poller: Poller): Boolean =
     !poller.selector.keys().isEmpty()
 
-  def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
-    targetPoller.selector.wakeup()
-    ()
-  }
+  def interrupt(targetThread: Thread, targetPoller: Poller): Unit =
+    targetThread.interrupt()
 
   def metrics(poller: Poller): PollerMetrics = poller
 
